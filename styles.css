@@ -1,0 +1,635 @@
+/* Focus Planner Main Container */
+.focus-planner-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 10px;
+  overflow: hidden;
+}
+
+/* Header */
+.focus-planner-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.focus-planner-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.focus-planner-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+}
+
+.focus-planner-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.focus-planner-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Header Title Row */
+.header-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-btn {
+  background: var(--interactive-normal);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.2em;
+  font-weight: bold;
+}
+
+.nav-btn:hover {
+  background: var(--interactive-hover);
+}
+
+.today-btn {
+  background: var(--interactive-normal);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85em;
+  margin-left: 5px;
+}
+
+.today-btn:hover {
+  background: var(--interactive-hover);
+}
+
+.week-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  min-width: 200px;
+  text-align: center;
+}
+
+/* Calendar - Full Width */
+.focus-planner-calendar {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ========== TIME GRID LAYOUT ========== */
+
+.time-grid {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Time Grid Header */
+.time-grid-header {
+  display: flex;
+  border-bottom: 2px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.time-column-header {
+  width: 50px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+.day-header {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 4px;
+  border-right: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.day-header:last-child {
+  border-right: none;
+}
+
+.day-header.today {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.day-info {
+  text-align: center;
+}
+
+.day-name {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.day-date {
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.day-header.today .day-date {
+  color: var(--text-on-accent);
+  opacity: 0.9;
+}
+
+/* Pomodoro Pie Chart in Header */
+.pomo-pie-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.pomo-pie {
+  display: block;
+}
+
+.pomo-pie-label {
+  font-size: 0.7em;
+  color: var(--text-muted);
+}
+
+.day-header.today .pomo-pie-label {
+  color: var(--text-on-accent);
+  opacity: 0.9;
+}
+
+/* Time Grid Body - Scrollable */
+.time-grid-body {
+  display: flex;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Time Column (left side) */
+.time-column {
+  width: 50px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+
+.time-slot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding-right: 8px;
+  font-size: 0.75em;
+  color: var(--text-muted);
+  box-sizing: border-box;
+}
+
+.time-slot span {
+  transform: translateY(-0.5em);
+}
+
+/* Day Columns Container */
+.day-columns-container {
+  display: flex;
+  flex: 1;
+  position: relative;
+}
+
+/* Day Column */
+.day-column {
+  flex: 1;
+  position: relative;
+  border-right: 1px solid var(--background-modifier-border);
+  min-width: 0;
+}
+
+.day-column:last-child {
+  border-right: none;
+}
+
+.day-column.today {
+  background: rgba(var(--interactive-accent-rgb), 0.05);
+}
+
+/* Hour Grid Lines */
+.hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--background-modifier-border);
+  pointer-events: none;
+}
+
+/* Calendar Events - Positioned absolutely in time grid */
+.calendar-event {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-left: 4px solid;
+  overflow: hidden;
+  z-index: 1;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.calendar-event:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.event-title {
+  font-weight: 500;
+  font-size: 0.85em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+}
+
+.event-time {
+  font-size: 0.75em;
+  opacity: 0.9;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.event-pomodoro {
+  margin-top: 2px;
+  font-size: 0.75em;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Current Time Indicator */
+.current-time-indicator {
+  position: absolute;
+  height: 2px;
+  background: #ef4444;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.current-time-indicator::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -4px;
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 50%;
+}
+
+/* No events placeholder */
+.no-events {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--text-faint);
+  font-size: 0.8em;
+  text-align: center;
+}
+
+/* ========== BOTTOM SUMMARY BAR ========== */
+
+.focus-planner-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 15px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  margin-top: 10px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.summary-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.summary-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--background-modifier-border);
+}
+
+/* Pomodoro Summary */
+.pomo-section {
+  min-width: 180px;
+}
+
+.summary-icon {
+  font-size: 1.1em;
+}
+
+.summary-label {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.summary-value {
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.summary-progress {
+  width: 60px;
+  height: 6px;
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.summary-progress-fill {
+  height: 100%;
+  background: #22c55e;
+  transition: width 0.3s ease;
+}
+
+/* Category Section */
+.category-section {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.category-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85em;
+}
+
+.category-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Legend Section */
+.legend-section {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75em;
+  color: var(--text-muted);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 800px) {
+  .focus-planner-summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .summary-divider {
+    display: none;
+  }
+
+  .legend-section {
+    margin-left: 0;
+  }
+}
+
+/* Dark theme adjustments */
+.theme-dark .day-column.today {
+  background: rgba(138, 180, 248, 0.1);
+}
+
+.theme-dark .focus-planner-summary {
+  background: var(--background-secondary-alt);
+}
+
+/* Pomodoro progress bar in events */
+.pomo-progress {
+  height: 3px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  margin-top: 2px;
+  overflow: hidden;
+}
+
+.pomo-progress-fill {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
+  transition: width 0.3s ease;
+}
+
+/* ========== DRAG AND DROP ========== */
+
+/* Drag handle on events */
+.event-drag-handle {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.7em;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: grab;
+  user-select: none;
+  letter-spacing: -2px;
+}
+
+.calendar-event:hover .event-drag-handle {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Cursor for draggable events */
+.calendar-event {
+  cursor: grab;
+}
+
+.calendar-event:active {
+  cursor: grabbing;
+}
+
+/* Dragging state */
+.calendar-event.dragging {
+  opacity: 0.9;
+  z-index: 100 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  transform: scale(1.02);
+  cursor: grabbing;
+  transition: none; /* Disable transitions during drag for smooth movement */
+}
+
+/* Body class during drag to prevent text selection */
+body.focus-planner-dragging {
+  user-select: none;
+  cursor: grabbing !important;
+}
+
+body.focus-planner-dragging * {
+  cursor: grabbing !important;
+}
+
+/* Visual indicator for drop target columns */
+.day-column.drag-over {
+  background: rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+/* Snap indicator line (optional visual feedback) */
+.snap-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--interactive-accent);
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0.5;
+}
+
+/* Time tooltip during drag */
+.drag-time-tooltip {
+  position: fixed;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 600;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* ========== EVENT CREATE MODAL ========== */
+
+.event-create-modal {
+  padding: 10px 0;
+}
+
+.event-create-modal h2 {
+  margin: 0 0 15px 0;
+  font-size: 1.3em;
+}
+
+.event-date-display {
+  color: var(--text-muted);
+  margin-bottom: 15px;
+}
+
+.time-input-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.time-input-container span {
+  color: var(--text-normal);
+}
+
+.time-select {
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 0.95em;
+  min-width: 60px;
+}
+
+.time-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.modal-button-container {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.modal-button-container button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.modal-button-container button:not(.mod-cta) {
+  background: var(--interactive-normal);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.modal-button-container button:not(.mod-cta):hover {
+  background: var(--interactive-hover);
+}
+
+.modal-button-container button.mod-cta {
+  background: var(--interactive-accent);
+  border: none;
+  color: var(--text-on-accent);
+}
+
+.modal-button-container button.mod-cta:hover {
+  background: var(--interactive-accent-hover);
+}
+
+/* Make day columns clickable */
+.day-column {
+  cursor: pointer;
+}
+
+.day-column:hover {
+  background: rgba(var(--interactive-accent-rgb), 0.03);
+}
+
+.day-column.today:hover {
+  background: rgba(var(--interactive-accent-rgb), 0.08);
+}

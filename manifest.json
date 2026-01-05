@@ -1,0 +1,10 @@
+{
+	"id": "focus-planner",
+	"name": "Focus Planner",
+	"version": "0.1.0",
+	"minAppVersion": "1.0.0",
+	"description": "Calendar-centric task planner with Feishu sync, pomodoro tracking, and time analytics",
+	"author": "zhouh",
+	"authorUrl": "https://github.com/zhouh",
+	"isDesktopOnly": false
+}
