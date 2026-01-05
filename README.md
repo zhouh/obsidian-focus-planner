@@ -4,7 +4,7 @@ A calendar-centric task planner for Obsidian with Feishu/Lark calendar sync, pom
 
 一个以日历为核心的 Obsidian 任务规划插件，支持飞书日历同步、番茄钟追踪和时间分析。
 
-![Focus Planner Screenshot](screenshots/calendar-view.png)
+![Focus Planner Screenshot](screenshots/calendar-view.jpg)
 
 ## Features / 功能
 
