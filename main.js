@@ -2835,12 +2835,17 @@ var TaskParser = class {
         pomodoros = parseInt(tomatoMatch[1], 10);
       }
     }
+    let pomodorosDone = 0;
+    const doneMatch = content.match(/\[done::\s*(\d+)\]/);
+    if (doneMatch) {
+      pomodorosDone = parseInt(doneMatch[1], 10);
+    }
     const tags = [];
     const tagMatches = content.matchAll(/#([^\s#\[\]]+)/g);
     for (const match of tagMatches) {
       tags.push(match[1]);
     }
-    let title = content.replace(/⏫|🔺|🔽/g, "").replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/⏳\s*\d{4}-\d{2}-\d{2}/g, "").replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/\[pomo::\s*\d+\]/g, "").replace(/\d+🍅/g, "").replace(/#[^\s#\[\]]+/g, "").replace(/\[\[[^\]]+\]\]/g, (match) => {
+    let title = content.replace(/⏫|🔺|🔽/g, "").replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/⏳\s*\d{4}-\d{2}-\d{2}/g, "").replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/\[pomo::\s*\d+\]/g, "").replace(/\[done::\s*\d+\]/g, "").replace(/\d+🍅/g, "").replace(/#[^\s#\[\]]+/g, "").replace(/\[\[[^\]]+\]\]/g, (match) => {
       return match.slice(2, -2).split("|").pop() || "";
     }).trim();
     title = title.replace(/\s+/g, " ").trim();
@@ -2854,6 +2859,7 @@ var TaskParser = class {
       dueDate,
       scheduledDate,
       pomodoros,
+      pomodorosDone,
       tags,
       sourcePath,
       lineNumber
@@ -3002,6 +3008,49 @@ var TaskParser = class {
       }
     }
     return false;
+  }
+  /**
+   * Find a task by title (fuzzy match)
+   */
+  async findTaskByTitle(title) {
+    const allTasks = await this.parseAllTasks();
+    const normalizedTitle = title.toLowerCase().trim();
+    let found = allTasks.find((t) => t.title.toLowerCase().trim() === normalizedTitle);
+    if (found)
+      return found;
+    found = allTasks.find(
+      (t) => t.title.toLowerCase().includes(normalizedTitle) || normalizedTitle.includes(t.title.toLowerCase())
+    );
+    return found || null;
+  }
+  /**
+   * Increment the done pomodoro count for a task
+   */
+  async incrementTaskDone(task) {
+    const file = this.app.vault.getAbstractFileByPath(task.sourcePath);
+    if (!(file instanceof import_obsidian6.TFile))
+      return false;
+    const content = await this.app.vault.read(file);
+    const lines = content.split("\n");
+    if (task.lineNumber < 1 || task.lineNumber > lines.length)
+      return false;
+    const lineIndex = task.lineNumber - 1;
+    let line = lines[lineIndex];
+    const doneMatch = line.match(/\[done::\s*(\d+)\]/);
+    if (doneMatch) {
+      const currentDone = parseInt(doneMatch[1], 10);
+      line = line.replace(/\[done::\s*\d+\]/, `[done:: ${currentDone + 1}]`);
+    } else {
+      const pomoMatch = line.match(/\[pomo::\s*\d+\]/);
+      if (pomoMatch) {
+        line = line.replace(/(\[pomo::\s*\d+\])/, `$1 [done:: 1]`);
+      } else {
+        line = line.trimEnd() + " [done:: 1]";
+      }
+    }
+    lines[lineIndex] = line;
+    await this.app.vault.modify(file, lines.join("\n"));
+    return true;
   }
 };
 
@@ -3243,12 +3292,25 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     }
   }
   // Start pomodoro timer for an event
-  startPomodoroForEvent(event) {
+  async startPomodoroForEvent(event) {
     var _a, _b;
     const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
     if (pomodoroPlugin) {
       this.app.commands.executeCommandById("pomodoro-timer:toggle-timer");
-      new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
+      const task = await this.taskParser.findTaskByTitle(event.title);
+      if (task) {
+        const success = await this.taskParser.incrementTaskDone(task);
+        if (success) {
+          const newDone = task.pomodorosDone + 1;
+          const total = task.pomodoros > 0 ? `/${task.pomodoros}` : "";
+          new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}
+\u{1F4DD} \u5DF2\u5B8C\u6210: ${newDone}${total}\u{1F345}`);
+        } else {
+          new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
+        }
+      } else {
+        new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
+      }
     } else {
       new import_obsidian7.Notice("\u8BF7\u5148\u5B89\u88C5\u5E76\u542F\u7528 Pomodoro Timer \u63D2\u4EF6");
     }

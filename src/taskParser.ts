@@ -16,6 +16,7 @@ export interface ParsedTask {
   dueDate: Date | null;     // 📅 date
   scheduledDate: Date | null; // ⏳ date
   pomodoros: number;        // [pomo:: N] estimate
+  pomodorosDone: number;    // [done:: N] completed pomodoros
   tags: string[];           // #tag1 #tag2
   sourcePath: string;       // Source file path
   lineNumber: number;       // Line number in file
@@ -108,6 +109,13 @@ export class TaskParser {
       }
     }
 
+    // Extract completed pomodoros [done:: N]
+    let pomodorosDone = 0;
+    const doneMatch = content.match(/\[done::\s*(\d+)\]/);
+    if (doneMatch) {
+      pomodorosDone = parseInt(doneMatch[1], 10);
+    }
+
     // Extract tags
     const tags: string[] = [];
     const tagMatches = content.matchAll(/#([^\s#\[\]]+)/g);
@@ -122,6 +130,7 @@ export class TaskParser {
       .replace(/⏳\s*\d{4}-\d{2}-\d{2}/g, '')     // Scheduled date
       .replace(/✅\s*\d{4}-\d{2}-\d{2}/g, '')     // Completion date
       .replace(/\[pomo::\s*\d+\]/g, '')           // Pomo estimate
+      .replace(/\[done::\s*\d+\]/g, '')           // Done pomodoros
       .replace(/\d+🍅/g, '')                      // Tomato format
       .replace(/#[^\s#\[\]]+/g, '')               // Tags
       .replace(/\[\[[^\]]+\]\]/g, (match) => {    // Keep wiki link text
@@ -142,6 +151,7 @@ export class TaskParser {
       dueDate,
       scheduledDate,
       pomodoros,
+      pomodorosDone,
       tags,
       sourcePath,
       lineNumber,
@@ -326,5 +336,66 @@ export class TaskParser {
       }
     }
     return false;
+  }
+
+  /**
+   * Find a task by title (fuzzy match)
+   */
+  async findTaskByTitle(title: string): Promise<ParsedTask | null> {
+    const allTasks = await this.parseAllTasks();
+
+    // Normalize title for comparison
+    const normalizedTitle = title.toLowerCase().trim();
+
+    // First try exact match
+    let found = allTasks.find(t => t.title.toLowerCase().trim() === normalizedTitle);
+    if (found) return found;
+
+    // Then try partial match (title contains or is contained)
+    found = allTasks.find(t =>
+      t.title.toLowerCase().includes(normalizedTitle) ||
+      normalizedTitle.includes(t.title.toLowerCase())
+    );
+
+    return found || null;
+  }
+
+  /**
+   * Increment the done pomodoro count for a task
+   */
+  async incrementTaskDone(task: ParsedTask): Promise<boolean> {
+    const file = this.app.vault.getAbstractFileByPath(task.sourcePath);
+    if (!(file instanceof TFile)) return false;
+
+    const content = await this.app.vault.read(file);
+    const lines = content.split('\n');
+
+    if (task.lineNumber < 1 || task.lineNumber > lines.length) return false;
+
+    const lineIndex = task.lineNumber - 1;
+    let line = lines[lineIndex];
+
+    // Check if line has [done:: N] field
+    const doneMatch = line.match(/\[done::\s*(\d+)\]/);
+
+    if (doneMatch) {
+      // Increment existing value
+      const currentDone = parseInt(doneMatch[1], 10);
+      line = line.replace(/\[done::\s*\d+\]/, `[done:: ${currentDone + 1}]`);
+    } else {
+      // Add [done:: 1] after [pomo:: N] if exists, otherwise at end before any trailing whitespace
+      const pomoMatch = line.match(/\[pomo::\s*\d+\]/);
+      if (pomoMatch) {
+        line = line.replace(/(\[pomo::\s*\d+\])/, `$1 [done:: 1]`);
+      } else {
+        // Add before any trailing metadata or at end
+        line = line.trimEnd() + ' [done:: 1]';
+      }
+    }
+
+    lines[lineIndex] = line;
+    await this.app.vault.modify(file, lines.join('\n'));
+
+    return true;
   }
 }

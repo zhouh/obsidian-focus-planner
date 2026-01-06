@@ -330,7 +330,7 @@ export default class FocusPlannerPlugin extends Plugin {
   }
 
   // Start pomodoro timer for an event
-  private startPomodoroForEvent(event: CalendarEvent) {
+  private async startPomodoroForEvent(event: CalendarEvent) {
     // Try to execute the pomodoro-timer plugin's toggle command
     // @ts-ignore - accessing internal API
     const pomodoroPlugin = this.app.plugins?.plugins?.['pomodoro-timer'];
@@ -339,7 +339,21 @@ export default class FocusPlannerPlugin extends Plugin {
       // Execute the toggle-timer command
       // @ts-ignore
       this.app.commands.executeCommandById('pomodoro-timer:toggle-timer');
-      new Notice(`🍅 开始番茄钟: ${event.title}`);
+
+      // Find matching task and increment done count
+      const task = await this.taskParser.findTaskByTitle(event.title);
+      if (task) {
+        const success = await this.taskParser.incrementTaskDone(task);
+        if (success) {
+          const newDone = task.pomodorosDone + 1;
+          const total = task.pomodoros > 0 ? `/${task.pomodoros}` : '';
+          new Notice(`🍅 开始番茄钟: ${event.title}\n📝 已完成: ${newDone}${total}🍅`);
+        } else {
+          new Notice(`🍅 开始番茄钟: ${event.title}`);
+        }
+      } else {
+        new Notice(`🍅 开始番茄钟: ${event.title}`);
+      }
     } else {
       new Notice('请先安装并启用 Pomodoro Timer 插件');
     }
