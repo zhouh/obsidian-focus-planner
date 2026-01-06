@@ -6,6 +6,7 @@ import {
   CATEGORY_LABELS,
   WeeklyStats,
 } from './types';
+import { ParsedTask, TaskPanelData } from './taskParser';
 
 export const VIEW_TYPE_FOCUS_PLANNER = 'focus-planner-view';
 
@@ -205,6 +206,10 @@ export class FocusPlannerView extends ItemView {
   private dragState: DragState | null = null;
   private dayColumnsContainer: HTMLElement | null = null;
 
+  // Task panel
+  private taskPanel: HTMLElement | null = null;
+  private taskPanelData: TaskPanelData | null = null;
+
   // Callbacks
   onSyncFeishu: (() => Promise<void>) | null = null;
   onEventClick: ((event: CalendarEvent) => void) | null = null;
@@ -214,6 +219,10 @@ export class FocusPlannerView extends ItemView {
   onEventDelete: ((event: CalendarEvent) => Promise<void>) | null = null;
   getWeeklyStats: ((weekStart: Date) => Promise<WeeklyStats>) | null = null;
   onWeekChange: ((weekStart: Date) => Promise<CalendarEvent[]>) | null = null;
+
+  // Task panel callbacks
+  onGetTasks: ((weekStart: Date) => Promise<TaskPanelData>) | null = null;
+  onTaskInferCategory: ((task: ParsedTask) => EventCategory) | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -247,15 +256,23 @@ export class FocusPlannerView extends ItemView {
     const header = container.createDiv({ cls: 'focus-planner-header' });
     this.createHeader(header);
 
-    // Calendar container (full width now)
-    this.calendarContainer = container.createDiv({ cls: 'focus-planner-calendar' });
+    // Main content area (calendar + task panel)
+    const mainContent = container.createDiv({ cls: 'focus-planner-main' });
+
+    // Calendar container
+    this.calendarContainer = mainContent.createDiv({ cls: 'focus-planner-calendar' });
+
+    // Task panel on the right
+    this.taskPanel = mainContent.createDiv({ cls: 'focus-planner-task-panel' });
 
     // Bottom summary bar
     this.summaryContainer = container.createDiv({ cls: 'focus-planner-summary' });
 
     // Load events for current week and render
     await this.loadEventsForCurrentWeek();
+    await this.loadTasksForPanel();
     this.renderCalendar();
+    this.renderTaskPanel();
     this.updateSummaryBar();
   }
 
@@ -494,6 +511,9 @@ export class FocusPlannerView extends ItemView {
 
     // Add current time indicator if viewing current week
     this.addCurrentTimeIndicator(columnsContainer);
+
+    // Set up drop zones for task dragging
+    this.setupDropZones();
   }
 
   // Handle double-click on day column to create new event
@@ -1039,5 +1059,232 @@ export class FocusPlannerView extends ItemView {
 
   async onClose() {
     // Cleanup
+  }
+
+  // ========== TASK PANEL ==========
+
+  // Load tasks for the panel
+  private async loadTasksForPanel() {
+    if (this.onGetTasks) {
+      this.taskPanelData = await this.onGetTasks(this.currentWeekStart);
+    }
+  }
+
+  // Render the task panel
+  private renderTaskPanel() {
+    if (!this.taskPanel) return;
+    this.taskPanel.empty();
+
+    // Panel header
+    const header = this.taskPanel.createDiv({ cls: 'task-panel-header' });
+    header.createSpan({ text: '📋 待办任务' });
+
+    // Refresh button
+    const refreshBtn = header.createEl('button', { cls: 'task-panel-refresh', text: '↻' });
+    refreshBtn.addEventListener('click', async () => {
+      await this.loadTasksForPanel();
+      this.renderTaskPanel();
+    });
+
+    if (!this.taskPanelData) {
+      this.taskPanel.createDiv({ cls: 'task-panel-empty', text: '加载中...' });
+      return;
+    }
+
+    const { today, thisWeek, overdue } = this.taskPanelData;
+
+    // Overdue section
+    if (overdue.length > 0) {
+      this.renderTaskSection(this.taskPanel, '🔴 已过期', overdue, 'overdue');
+    }
+
+    // Today section
+    if (today.length > 0) {
+      this.renderTaskSection(this.taskPanel, '🟠 今日 Due', today, 'today');
+    }
+
+    // This week section
+    if (thisWeek.length > 0) {
+      this.renderTaskSection(this.taskPanel, '🟡 本周 Due', thisWeek, 'week');
+    }
+
+    // Empty state
+    if (overdue.length === 0 && today.length === 0 && thisWeek.length === 0) {
+      const emptyDiv = this.taskPanel.createDiv({ cls: 'task-panel-empty' });
+      emptyDiv.createSpan({ text: '暂无待办任务' });
+      emptyDiv.createEl('br');
+      emptyDiv.createSpan({ cls: 'task-panel-hint', text: '任务来源: Inbox.md, Projects/, Areas/' });
+    }
+
+    // Drag hint
+    const hint = this.taskPanel.createDiv({ cls: 'task-panel-hint' });
+    hint.textContent = '💡 拖拽任务到日历创建日程';
+  }
+
+  // Render a section of tasks
+  private renderTaskSection(container: HTMLElement, title: string, tasks: ParsedTask[], sectionType: string) {
+    const section = container.createDiv({ cls: `task-panel-section ${sectionType}` });
+
+    const header = section.createDiv({ cls: 'task-panel-section-header' });
+    header.createSpan({ text: title });
+    header.createSpan({ cls: 'task-count', text: `(${tasks.length})` });
+
+    const taskList = section.createDiv({ cls: 'task-list' });
+
+    for (const task of tasks) {
+      const taskCard = this.createTaskCard(task);
+      taskList.appendChild(taskCard);
+    }
+  }
+
+  // Create a draggable task card
+  private createTaskCard(task: ParsedTask): HTMLElement {
+    const card = document.createElement('div');
+    card.className = 'task-card';
+    card.setAttribute('draggable', 'true');
+
+    // Priority class
+    card.addClass(`priority-${task.priority}`);
+
+    // Task title
+    const titleEl = card.createDiv({ cls: 'task-card-title' });
+
+    // Priority indicator
+    if (task.priority === 'highest') {
+      titleEl.createSpan({ cls: 'task-priority', text: '⏫ ' });
+    } else if (task.priority === 'high') {
+      titleEl.createSpan({ cls: 'task-priority', text: '🔺 ' });
+    }
+
+    titleEl.createSpan({ text: task.title });
+
+    // Meta info (pomodoros, due date, tags)
+    const metaEl = card.createDiv({ cls: 'task-meta' });
+
+    if (task.pomodoros > 0) {
+      metaEl.createSpan({ cls: 'task-pomo', text: `${task.pomodoros}🍅` });
+    }
+
+    if (task.dueDate) {
+      const dateStr = `${task.dueDate.getMonth() + 1}/${task.dueDate.getDate()}`;
+      metaEl.createSpan({ cls: 'task-due', text: `📅 ${dateStr}` });
+    }
+
+    if (task.tags.length > 0) {
+      const tagsStr = task.tags.slice(0, 2).map(t => `#${t}`).join(' ');
+      metaEl.createSpan({ cls: 'task-tags', text: tagsStr });
+    }
+
+    // Drag events
+    card.addEventListener('dragstart', (e: DragEvent) => {
+      card.addClass('dragging');
+      e.dataTransfer?.setData('application/json', JSON.stringify(task));
+      e.dataTransfer!.effectAllowed = 'copy';
+    });
+
+    card.addEventListener('dragend', () => {
+      card.removeClass('dragging');
+    });
+
+    return card;
+  }
+
+  // Set up drop zones on day columns
+  private setupDropZones() {
+    if (!this.dayColumnsContainer) return;
+
+    const dayColumns = this.dayColumnsContainer.querySelectorAll('.day-column');
+
+    dayColumns.forEach((col, index) => {
+      const column = col as HTMLElement;
+
+      column.addEventListener('dragover', (e: DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = 'copy';
+        column.addClass('drop-target');
+      });
+
+      column.addEventListener('dragleave', () => {
+        column.removeClass('drop-target');
+      });
+
+      column.addEventListener('drop', (e: DragEvent) => {
+        e.preventDefault();
+        column.removeClass('drop-target');
+
+        const taskData = e.dataTransfer?.getData('application/json');
+        if (taskData) {
+          try {
+            const task = JSON.parse(taskData) as ParsedTask;
+            const date = new Date(this.currentWeekStart);
+            date.setDate(date.getDate() + index);
+            this.handleTaskDrop(e, task, date, column);
+          } catch (err) {
+            console.error('Failed to parse dropped task:', err);
+          }
+        }
+      });
+    });
+  }
+
+  // Handle dropping a task onto the calendar
+  private handleTaskDrop(e: DragEvent, task: ParsedTask, date: Date, dayColumn: HTMLElement) {
+    // Calculate drop position time
+    const rect = dayColumn.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+
+    // Calculate hour and minute
+    const totalMinutes = (relativeY / HOUR_HEIGHT) * 60 + START_HOUR * 60;
+    const snappedMinutes = Math.round(totalMinutes / SNAP_MINUTES) * SNAP_MINUTES;
+
+    const hour = Math.floor(snappedMinutes / 60);
+    const minute = snappedMinutes % 60;
+
+    // Clamp to valid range
+    const clampedHour = Math.max(START_HOUR, Math.min(END_HOUR - 1, hour));
+    const clampedMinute = minute >= 60 ? 0 : minute;
+
+    // Calculate duration from pomodoros (1 pomo = 25min, default = 60min)
+    const durationMinutes = task.pomodoros > 0 ? task.pomodoros * 25 : 60;
+
+    // Create start and end times
+    const startDate = new Date(date);
+    startDate.setHours(clampedHour, clampedMinute, 0, 0);
+
+    const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1000);
+
+    // Clamp end time to END_HOUR
+    if (endDate.getHours() > END_HOUR || (endDate.getHours() === END_HOUR && endDate.getMinutes() > 0)) {
+      endDate.setHours(END_HOUR, 0, 0, 0);
+    }
+
+    // Infer category
+    let category = EventCategory.FOCUS;
+    if (this.onTaskInferCategory) {
+      category = this.onTaskInferCategory(task);
+    }
+
+    // Create event
+    const eventData: NewEventData = {
+      title: task.title,
+      category,
+      start: startDate,
+      end: endDate,
+    };
+
+    // Call event create callback
+    if (this.onEventCreate) {
+      this.onEventCreate(eventData).then(() => {
+        new Notice(`✅ 已创建日程: ${task.title}`);
+      }).catch((error) => {
+        new Notice(`创建失败: ${error.message}`);
+      });
+    }
+  }
+
+  // Refresh task panel (can be called externally)
+  async refreshTaskPanel() {
+    await this.loadTasksForPanel();
+    this.renderTaskPanel();
   }
 }

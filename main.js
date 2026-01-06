@@ -27,7 +27,7 @@ __export(main_exports, {
   default: () => FocusPlannerPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/types.ts
 var EventCategory = /* @__PURE__ */ ((EventCategory3) => {
@@ -1794,6 +1794,9 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
     this.summaryContainer = null;
     this.dragState = null;
     this.dayColumnsContainer = null;
+    // Task panel
+    this.taskPanel = null;
+    this.taskPanelData = null;
     // Callbacks
     this.onSyncFeishu = null;
     this.onEventClick = null;
@@ -1803,6 +1806,9 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
     this.onEventDelete = null;
     this.getWeeklyStats = null;
     this.onWeekChange = null;
+    // Task panel callbacks
+    this.onGetTasks = null;
+    this.onTaskInferCategory = null;
     this.handleDragMove = (e) => {
       if (!this.dragState)
         return;
@@ -1911,10 +1917,14 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
     container.addClass("focus-planner-container");
     const header = container.createDiv({ cls: "focus-planner-header" });
     this.createHeader(header);
-    this.calendarContainer = container.createDiv({ cls: "focus-planner-calendar" });
+    const mainContent = container.createDiv({ cls: "focus-planner-main" });
+    this.calendarContainer = mainContent.createDiv({ cls: "focus-planner-calendar" });
+    this.taskPanel = mainContent.createDiv({ cls: "focus-planner-task-panel" });
     this.summaryContainer = container.createDiv({ cls: "focus-planner-summary" });
     await this.loadEventsForCurrentWeek();
+    await this.loadTasksForPanel();
     this.renderCalendar();
+    this.renderTaskPanel();
     this.updateSummaryBar();
   }
   createHeader(container) {
@@ -2089,6 +2099,7 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
       });
     }
     this.addCurrentTimeIndicator(columnsContainer);
+    this.setupDropZones();
   }
   // Handle double-click on day column to create new event
   handleDayColumnDoubleClick(e, date, dayColumn) {
@@ -2391,6 +2402,169 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
   }
   async onClose() {
   }
+  // ========== TASK PANEL ==========
+  // Load tasks for the panel
+  async loadTasksForPanel() {
+    if (this.onGetTasks) {
+      this.taskPanelData = await this.onGetTasks(this.currentWeekStart);
+    }
+  }
+  // Render the task panel
+  renderTaskPanel() {
+    if (!this.taskPanel)
+      return;
+    this.taskPanel.empty();
+    const header = this.taskPanel.createDiv({ cls: "task-panel-header" });
+    header.createSpan({ text: "\u{1F4CB} \u5F85\u529E\u4EFB\u52A1" });
+    const refreshBtn = header.createEl("button", { cls: "task-panel-refresh", text: "\u21BB" });
+    refreshBtn.addEventListener("click", async () => {
+      await this.loadTasksForPanel();
+      this.renderTaskPanel();
+    });
+    if (!this.taskPanelData) {
+      this.taskPanel.createDiv({ cls: "task-panel-empty", text: "\u52A0\u8F7D\u4E2D..." });
+      return;
+    }
+    const { today, thisWeek, overdue } = this.taskPanelData;
+    if (overdue.length > 0) {
+      this.renderTaskSection(this.taskPanel, "\u{1F534} \u5DF2\u8FC7\u671F", overdue, "overdue");
+    }
+    if (today.length > 0) {
+      this.renderTaskSection(this.taskPanel, "\u{1F7E0} \u4ECA\u65E5 Due", today, "today");
+    }
+    if (thisWeek.length > 0) {
+      this.renderTaskSection(this.taskPanel, "\u{1F7E1} \u672C\u5468 Due", thisWeek, "week");
+    }
+    if (overdue.length === 0 && today.length === 0 && thisWeek.length === 0) {
+      const emptyDiv = this.taskPanel.createDiv({ cls: "task-panel-empty" });
+      emptyDiv.createSpan({ text: "\u6682\u65E0\u5F85\u529E\u4EFB\u52A1" });
+      emptyDiv.createEl("br");
+      emptyDiv.createSpan({ cls: "task-panel-hint", text: "\u4EFB\u52A1\u6765\u6E90: Inbox.md, Projects/, Areas/" });
+    }
+    const hint = this.taskPanel.createDiv({ cls: "task-panel-hint" });
+    hint.textContent = "\u{1F4A1} \u62D6\u62FD\u4EFB\u52A1\u5230\u65E5\u5386\u521B\u5EFA\u65E5\u7A0B";
+  }
+  // Render a section of tasks
+  renderTaskSection(container, title, tasks, sectionType) {
+    const section = container.createDiv({ cls: `task-panel-section ${sectionType}` });
+    const header = section.createDiv({ cls: "task-panel-section-header" });
+    header.createSpan({ text: title });
+    header.createSpan({ cls: "task-count", text: `(${tasks.length})` });
+    const taskList = section.createDiv({ cls: "task-list" });
+    for (const task of tasks) {
+      const taskCard = this.createTaskCard(task);
+      taskList.appendChild(taskCard);
+    }
+  }
+  // Create a draggable task card
+  createTaskCard(task) {
+    const card = document.createElement("div");
+    card.className = "task-card";
+    card.setAttribute("draggable", "true");
+    card.addClass(`priority-${task.priority}`);
+    const titleEl = card.createDiv({ cls: "task-card-title" });
+    if (task.priority === "highest") {
+      titleEl.createSpan({ cls: "task-priority", text: "\u23EB " });
+    } else if (task.priority === "high") {
+      titleEl.createSpan({ cls: "task-priority", text: "\u{1F53A} " });
+    }
+    titleEl.createSpan({ text: task.title });
+    const metaEl = card.createDiv({ cls: "task-meta" });
+    if (task.pomodoros > 0) {
+      metaEl.createSpan({ cls: "task-pomo", text: `${task.pomodoros}\u{1F345}` });
+    }
+    if (task.dueDate) {
+      const dateStr = `${task.dueDate.getMonth() + 1}/${task.dueDate.getDate()}`;
+      metaEl.createSpan({ cls: "task-due", text: `\u{1F4C5} ${dateStr}` });
+    }
+    if (task.tags.length > 0) {
+      const tagsStr = task.tags.slice(0, 2).map((t) => `#${t}`).join(" ");
+      metaEl.createSpan({ cls: "task-tags", text: tagsStr });
+    }
+    card.addEventListener("dragstart", (e) => {
+      var _a;
+      card.addClass("dragging");
+      (_a = e.dataTransfer) == null ? void 0 : _a.setData("application/json", JSON.stringify(task));
+      e.dataTransfer.effectAllowed = "copy";
+    });
+    card.addEventListener("dragend", () => {
+      card.removeClass("dragging");
+    });
+    return card;
+  }
+  // Set up drop zones on day columns
+  setupDropZones() {
+    if (!this.dayColumnsContainer)
+      return;
+    const dayColumns = this.dayColumnsContainer.querySelectorAll(".day-column");
+    dayColumns.forEach((col, index) => {
+      const column = col;
+      column.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        column.addClass("drop-target");
+      });
+      column.addEventListener("dragleave", () => {
+        column.removeClass("drop-target");
+      });
+      column.addEventListener("drop", (e) => {
+        var _a;
+        e.preventDefault();
+        column.removeClass("drop-target");
+        const taskData = (_a = e.dataTransfer) == null ? void 0 : _a.getData("application/json");
+        if (taskData) {
+          try {
+            const task = JSON.parse(taskData);
+            const date = new Date(this.currentWeekStart);
+            date.setDate(date.getDate() + index);
+            this.handleTaskDrop(e, task, date, column);
+          } catch (err) {
+            console.error("Failed to parse dropped task:", err);
+          }
+        }
+      });
+    });
+  }
+  // Handle dropping a task onto the calendar
+  handleTaskDrop(e, task, date, dayColumn) {
+    const rect = dayColumn.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+    const totalMinutes = relativeY / HOUR_HEIGHT * 60 + START_HOUR * 60;
+    const snappedMinutes = Math.round(totalMinutes / SNAP_MINUTES) * SNAP_MINUTES;
+    const hour = Math.floor(snappedMinutes / 60);
+    const minute = snappedMinutes % 60;
+    const clampedHour = Math.max(START_HOUR, Math.min(END_HOUR - 1, hour));
+    const clampedMinute = minute >= 60 ? 0 : minute;
+    const durationMinutes = task.pomodoros > 0 ? task.pomodoros * 25 : 60;
+    const startDate = new Date(date);
+    startDate.setHours(clampedHour, clampedMinute, 0, 0);
+    const endDate = new Date(startDate.getTime() + durationMinutes * 60 * 1e3);
+    if (endDate.getHours() > END_HOUR || endDate.getHours() === END_HOUR && endDate.getMinutes() > 0) {
+      endDate.setHours(END_HOUR, 0, 0, 0);
+    }
+    let category = "focus" /* FOCUS */;
+    if (this.onTaskInferCategory) {
+      category = this.onTaskInferCategory(task);
+    }
+    const eventData = {
+      title: task.title,
+      category,
+      start: startDate,
+      end: endDate
+    };
+    if (this.onEventCreate) {
+      this.onEventCreate(eventData).then(() => {
+        new import_obsidian4.Notice(`\u2705 \u5DF2\u521B\u5EFA\u65E5\u7A0B: ${task.title}`);
+      }).catch((error) => {
+        new import_obsidian4.Notice(`\u521B\u5EFA\u5931\u8D25: ${error.message}`);
+      });
+    }
+  }
+  // Refresh task panel (can be called externally)
+  async refreshTaskPanel() {
+    await this.loadTasksForPanel();
+    this.renderTaskPanel();
+  }
 };
 
 // src/settingsTab.ts
@@ -2572,8 +2746,243 @@ var FocusPlannerSettingTab = class extends import_obsidian5.PluginSettingTab {
   }
 };
 
+// src/taskParser.ts
+var import_obsidian6 = require("obsidian");
+var STATUS_MAP = {
+  " ": "todo",
+  "x": "done",
+  "X": "done",
+  "/": "in_progress",
+  "-": "cancelled",
+  ">": "deferred"
+};
+var TaskParser = class {
+  constructor(app, taskSources) {
+    this.app = app;
+    this.taskSources = taskSources || [
+      "Inbox.md",
+      "1. Projects/",
+      "2. Areas/",
+      "3. Resources/"
+    ];
+  }
+  /**
+   * Parse a single task line
+   */
+  parseTaskLine(line, sourcePath, lineNumber) {
+    var _a;
+    const taskMatch = line.match(/^[\s]*[-*]\s*\[(.)\]\s*(.+)$/);
+    if (!taskMatch)
+      return null;
+    const statusChar = taskMatch[1];
+    const content = taskMatch[2];
+    const status = STATUS_MAP[statusChar] || "todo";
+    if (status === "done" || status === "cancelled")
+      return null;
+    let priority = "normal";
+    if (content.includes("\u23EB"))
+      priority = "highest";
+    else if (content.includes("\u{1F53A}"))
+      priority = "high";
+    else if (content.includes("\u{1F53D}"))
+      priority = "low";
+    let dueDate = null;
+    const dueDateMatches = content.match(/📅\s*(\d{4}-\d{2}-\d{2})/g);
+    if (dueDateMatches && dueDateMatches.length > 0) {
+      const lastMatch = dueDateMatches[dueDateMatches.length - 1];
+      const dateStr = (_a = lastMatch.match(/📅\s*(\d{4}-\d{2}-\d{2})/)) == null ? void 0 : _a[1];
+      if (dateStr) {
+        dueDate = new Date(dateStr);
+        dueDate.setHours(23, 59, 59);
+      }
+    }
+    let scheduledDate = null;
+    const scheduledMatch = content.match(/⏳\s*(\d{4}-\d{2}-\d{2})/);
+    if (scheduledMatch) {
+      scheduledDate = new Date(scheduledMatch[1]);
+    }
+    let pomodoros = 0;
+    const pomoMatch = content.match(/\[pomo::\s*(\d+)\]/);
+    if (pomoMatch) {
+      pomodoros = parseInt(pomoMatch[1], 10);
+    } else {
+      const tomatoMatch = content.match(/(\d+)🍅/);
+      if (tomatoMatch) {
+        pomodoros = parseInt(tomatoMatch[1], 10);
+      }
+    }
+    const tags = [];
+    const tagMatches = content.matchAll(/#([^\s#\[\]]+)/g);
+    for (const match of tagMatches) {
+      tags.push(match[1]);
+    }
+    let title = content.replace(/⏫|🔺|🔽/g, "").replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/⏳\s*\d{4}-\d{2}-\d{2}/g, "").replace(/✅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/\[pomo::\s*\d+\]/g, "").replace(/\d+🍅/g, "").replace(/#[^\s#\[\]]+/g, "").replace(/\[\[[^\]]+\]\]/g, (match) => {
+      return match.slice(2, -2).split("|").pop() || "";
+    }).trim();
+    title = title.replace(/\s+/g, " ").trim();
+    if (!title)
+      return null;
+    return {
+      raw: line,
+      title,
+      status,
+      priority,
+      dueDate,
+      scheduledDate,
+      pomodoros,
+      tags,
+      sourcePath,
+      lineNumber
+    };
+  }
+  /**
+   * Parse all tasks from a file
+   */
+  async parseFile(file) {
+    const tasks = [];
+    const content = await this.app.vault.read(file);
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const task = this.parseTaskLine(lines[i], file.path, i + 1);
+      if (task) {
+        tasks.push(task);
+      }
+    }
+    return tasks;
+  }
+  /**
+   * Get all files from task sources
+   */
+  getSourceFiles() {
+    const files = [];
+    for (const source of this.taskSources) {
+      if (source.endsWith("/")) {
+        const folder = this.app.vault.getAbstractFileByPath(source.slice(0, -1));
+        if (folder instanceof import_obsidian6.TFolder) {
+          this.collectFilesFromFolder(folder, files);
+        }
+      } else {
+        const file = this.app.vault.getAbstractFileByPath(source);
+        if (file instanceof import_obsidian6.TFile && file.extension === "md") {
+          files.push(file);
+        }
+      }
+    }
+    return files;
+  }
+  /**
+   * Recursively collect markdown files from a folder
+   */
+  collectFilesFromFolder(folder, files) {
+    for (const child of folder.children) {
+      if (child instanceof import_obsidian6.TFile && child.extension === "md") {
+        if (!child.path.toLowerCase().includes("template")) {
+          files.push(child);
+        }
+      } else if (child instanceof import_obsidian6.TFolder) {
+        this.collectFilesFromFolder(child, files);
+      }
+    }
+  }
+  /**
+   * Parse all tasks from configured sources
+   */
+  async parseAllTasks() {
+    const allTasks = [];
+    const files = this.getSourceFiles();
+    for (const file of files) {
+      const tasks = await this.parseFile(file);
+      allTasks.push(...tasks);
+    }
+    return allTasks.sort((a, b) => {
+      const priorityOrder = { highest: 0, high: 1, normal: 2, low: 3 };
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (priorityDiff !== 0)
+        return priorityDiff;
+      if (a.dueDate && b.dueDate) {
+        return a.dueDate.getTime() - b.dueDate.getTime();
+      }
+      if (a.dueDate)
+        return -1;
+      if (b.dueDate)
+        return 1;
+      return 0;
+    });
+  }
+  /**
+   * Get tasks for the panel display
+   */
+  async getTasksForPanel(weekStart) {
+    const allTasks = await this.parseAllTasks();
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+    const todayTasks = [];
+    const thisWeekTasks = [];
+    const overdueTasks = [];
+    for (const task of allTasks) {
+      if (task.status !== "todo" && task.status !== "in_progress")
+        continue;
+      if (task.dueDate) {
+        const dueDay = new Date(task.dueDate.getFullYear(), task.dueDate.getMonth(), task.dueDate.getDate());
+        if (dueDay < today) {
+          overdueTasks.push(task);
+        } else if (dueDay.getTime() === today.getTime()) {
+          todayTasks.push(task);
+        } else if (dueDay >= tomorrow && dueDay < weekEnd) {
+          thisWeekTasks.push(task);
+        }
+      }
+    }
+    return {
+      today: todayTasks,
+      thisWeek: thisWeekTasks,
+      overdue: overdueTasks
+    };
+  }
+  /**
+   * Infer category from task content
+   */
+  inferCategory(task) {
+    const text = (task.title + " " + task.tags.join(" ")).toLowerCase();
+    if (/会议|讨论|sync|meeting|周会|seminar|oneone/i.test(text)) {
+      return "meeting" /* MEETING */;
+    }
+    if (/家|爸|妈|gym|个人|生活|湿疹|挂号/i.test(text)) {
+      return "personal" /* PERSONAL */;
+    }
+    if (/报销|行政|申请|oa/i.test(text)) {
+      return "admin" /* ADMIN */;
+    }
+    if (/休息|午休|break/i.test(text)) {
+      return "rest" /* REST */;
+    }
+    return "focus" /* FOCUS */;
+  }
+  /**
+   * Check if a file path is a task source
+   */
+  isTaskSource(filePath) {
+    for (const source of this.taskSources) {
+      if (source.endsWith("/")) {
+        if (filePath.startsWith(source.slice(0, -1))) {
+          return true;
+        }
+      } else {
+        if (filePath === source) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+};
+
 // src/main.ts
-var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
+var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.syncIntervalId = null;
@@ -2582,6 +2991,7 @@ var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
     await this.loadSettings();
     this.dailyNoteParser = new DailyNoteParser(this.app, this.settings);
     this.statsManager = new StatsManager(this.app, this.settings, this.dailyNoteParser);
+    this.taskParser = new TaskParser(this.app);
     this.feishuApi = new FeishuApi(
       this.settings.feishu,
       async (feishuSettings) => {
@@ -2605,6 +3015,8 @@ var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
         view.onEventCreate = (data) => this.handleEventCreate(data);
         view.onEventDelete = (event) => this.handleEventDelete(event);
         view.onWeekChange = (weekStart) => this.getEventsForWeek(weekStart);
+        view.onGetTasks = (weekStart) => this.taskParser.getTasksForPanel(weekStart);
+        view.onTaskInferCategory = (task) => this.taskParser.inferCategory(task);
         return view;
       }
     );
@@ -2701,27 +3113,27 @@ var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
   // Sync calendar from Feishu (supports both CalDAV and Open API)
   async syncFeishuCalendar() {
     if (!this.settings.feishu.syncEnabled) {
-      new import_obsidian6.Notice("\u98DE\u4E66\u540C\u6B65\u672A\u542F\u7528\uFF0C\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u542F\u7528");
+      new import_obsidian7.Notice("\u98DE\u4E66\u540C\u6B65\u672A\u542F\u7528\uFF0C\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u542F\u7528");
       return;
     }
     const useCalDav = this.settings.feishu.useCalDav;
     if (useCalDav) {
       if (!this.settings.feishu.caldavUsername || !this.settings.feishu.caldavPassword) {
-        new import_obsidian6.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E CalDAV \u7528\u6237\u540D\u548C\u5BC6\u7801");
+        new import_obsidian7.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E CalDAV \u7528\u6237\u540D\u548C\u5BC6\u7801");
         return;
       }
     } else {
       if (!this.settings.feishu.appId || !this.settings.feishu.appSecret) {
-        new import_obsidian6.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E\u98DE\u4E66 App ID \u548C App Secret");
+        new import_obsidian7.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E\u98DE\u4E66 App ID \u548C App Secret");
         return;
       }
       if (!this.settings.feishu.accessToken) {
-        new import_obsidian6.Notice("\u8BF7\u5148\u767B\u5F55\u98DE\u4E66\u8D26\u53F7");
+        new import_obsidian7.Notice("\u8BF7\u5148\u767B\u5F55\u98DE\u4E66\u8D26\u53F7");
         return;
       }
     }
     try {
-      new import_obsidian6.Notice(useCalDav ? "\u6B63\u5728\u901A\u8FC7 CalDAV \u540C\u6B65\u65E5\u5386..." : "\u6B63\u5728\u540C\u6B65\u98DE\u4E66\u65E5\u5386...");
+      new import_obsidian7.Notice(useCalDav ? "\u6B63\u5728\u901A\u8FC7 CalDAV \u540C\u6B65\u65E5\u5386..." : "\u6B63\u5728\u540C\u6B65\u98DE\u4E66\u65E5\u5386...");
       const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_FOCUS_PLANNER);
       let weekStart;
       if (leaves.length > 0) {
@@ -2759,20 +3171,20 @@ var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
       this.settings.feishu.lastSync = Date.now();
       await this.saveSettings();
       await this.refreshView();
-      new import_obsidian6.Notice(`${useCalDav ? "CalDAV" : "\u98DE\u4E66"}\u540C\u6B65\u5B8C\u6210\uFF01\u540C\u6B65\u4E86 ${feishuEvents.length} \u4E2A\u65E5\u7A0B`);
+      new import_obsidian7.Notice(`${useCalDav ? "CalDAV" : "\u98DE\u4E66"}\u540C\u6B65\u5B8C\u6210\uFF01\u540C\u6B65\u4E86 ${feishuEvents.length} \u4E2A\u65E5\u7A0B`);
     } catch (error) {
       console.error("Feishu sync error:", error);
-      new import_obsidian6.Notice(`\u540C\u6B65\u5931\u8D25: ${error.message}`);
+      new import_obsidian7.Notice(`\u540C\u6B65\u5931\u8D25: ${error.message}`);
     }
   }
   // Login to Feishu - Step 1: Open OAuth page
   async loginFeishu() {
     if (!this.settings.feishu.appId || !this.settings.feishu.appSecret) {
-      new import_obsidian6.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E\u98DE\u4E66 App ID \u548C App Secret");
+      new import_obsidian7.Notice("\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E\u98DE\u4E66 App ID \u548C App Secret");
       return;
     }
     const oauthUrl = this.feishuApi.getOAuthUrl("http://localhost:3000/callback");
-    new import_obsidian6.Notice(
+    new import_obsidian7.Notice(
       "\u6D4F\u89C8\u5668\u5C06\u6253\u5F00\u98DE\u4E66\u6388\u6743\u9875\u9762\u3002\n\u767B\u5F55\u540E\uFF0C\u590D\u5236 URL \u4E2D\u7684 code \u53C2\u6570\uFF0C\n\u7136\u540E\u70B9\u51FB\u300C\u8F93\u5165\u6388\u6743\u7801\u300D\u6309\u94AE\u7C98\u8D34\u3002"
     );
     window.open(oauthUrl);
@@ -2780,21 +3192,21 @@ var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
   // Login to Feishu - Step 2: Handle authorization code
   async handleAuthCode(code) {
     if (!code) {
-      new import_obsidian6.Notice("\u6388\u6743\u7801\u4E0D\u80FD\u4E3A\u7A7A");
+      new import_obsidian7.Notice("\u6388\u6743\u7801\u4E0D\u80FD\u4E3A\u7A7A");
       return;
     }
     try {
-      new import_obsidian6.Notice("\u6B63\u5728\u9A8C\u8BC1\u6388\u6743\u7801...");
+      new import_obsidian7.Notice("\u6B63\u5728\u9A8C\u8BC1\u6388\u6743\u7801...");
       const tokens = await this.feishuApi.getUserAccessToken(code);
       this.settings.feishu.accessToken = tokens.accessToken;
       this.settings.feishu.refreshToken = tokens.refreshToken;
       this.settings.feishu.tokenExpiry = Date.now() + tokens.expiresIn * 1e3;
       await this.saveSettings();
       this.startAutoSync();
-      new import_obsidian6.Notice("\u98DE\u4E66\u767B\u5F55\u6210\u529F\uFF01");
+      new import_obsidian7.Notice("\u98DE\u4E66\u767B\u5F55\u6210\u529F\uFF01");
     } catch (error) {
       console.error("Feishu auth error:", error);
-      new import_obsidian6.Notice(`\u767B\u5F55\u5931\u8D25: ${error.message}`);
+      new import_obsidian7.Notice(`\u767B\u5F55\u5931\u8D25: ${error.message}`);
     }
   }
   // Handle event click in calendar
@@ -2812,9 +3224,9 @@ var FocusPlannerPlugin = class extends import_obsidian6.Plugin {
     const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
     if (pomodoroPlugin) {
       this.app.commands.executeCommandById("pomodoro-timer:toggle-timer");
-      new import_obsidian6.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
+      new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
     } else {
-      new import_obsidian6.Notice("\u8BF7\u5148\u5B89\u88C5\u5E76\u542F\u7528 Pomodoro Timer \u63D2\u4EF6");
+      new import_obsidian7.Notice("\u8BF7\u5148\u5B89\u88C5\u5E76\u542F\u7528 Pomodoro Timer \u63D2\u4EF6");
     }
   }
   // Handle event deletion (context menu)

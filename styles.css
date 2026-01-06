@@ -633,3 +633,217 @@ body.focus-planner-dragging * {
 .day-column.today:hover {
   background: rgba(var(--interactive-accent-rgb), 0.08);
 }
+
+/* ========== MAIN CONTENT LAYOUT ========== */
+
+.focus-planner-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 0;
+}
+
+.focus-planner-calendar {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ========== TASK PANEL ========== */
+
+.focus-planner-task-panel {
+  width: 260px;
+  min-width: 200px;
+  max-width: 320px;
+  border-left: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.task-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  font-weight: 600;
+  font-size: 0.95em;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.task-panel-refresh {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1em;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.task-panel-refresh:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.task-panel-empty {
+  padding: 20px 14px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.task-panel-hint {
+  padding: 10px 14px;
+  font-size: 0.75em;
+  color: var(--text-faint);
+  text-align: center;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: auto;
+}
+
+/* Task Panel Sections */
+.task-panel-section {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.task-panel-section:last-of-type {
+  border-bottom: none;
+}
+
+.task-panel-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8em;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.task-panel-section-header .task-count {
+  font-weight: normal;
+  color: var(--text-faint);
+}
+
+.task-panel-section.overdue .task-panel-section-header {
+  color: #ef4444;
+}
+
+.task-panel-section.today .task-panel-section-header {
+  color: #f97316;
+}
+
+.task-panel-section.week .task-panel-section-header {
+  color: #eab308;
+}
+
+/* Task List */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Task Card */
+.task-card {
+  padding: 8px 10px;
+  background: var(--background-primary);
+  border-radius: 6px;
+  border-left: 3px solid var(--interactive-accent);
+  cursor: grab;
+  transition: all 0.15s ease;
+  font-size: 0.85em;
+}
+
+.task-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transform: translateX(2px);
+}
+
+.task-card:active {
+  cursor: grabbing;
+}
+
+.task-card.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+/* Priority Colors */
+.task-card.priority-highest {
+  border-left-color: #ef4444;
+}
+
+.task-card.priority-high {
+  border-left-color: #f97316;
+}
+
+.task-card.priority-normal {
+  border-left-color: var(--interactive-accent);
+}
+
+.task-card.priority-low {
+  border-left-color: var(--text-muted);
+}
+
+/* Task Card Content */
+.task-card-title {
+  font-weight: 500;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.task-priority {
+  margin-right: 2px;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.task-pomo {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.task-due {
+  color: var(--text-faint);
+}
+
+.task-tags {
+  color: var(--text-faint);
+  font-size: 0.9em;
+}
+
+/* Drop Target Highlight */
+.day-column.drop-target {
+  background: rgba(34, 197, 94, 0.15) !important;
+  box-shadow: inset 0 0 0 2px rgba(34, 197, 94, 0.5);
+}
+
+/* Responsive - Hide Task Panel on Small Screens */
+@media (max-width: 900px) {
+  .focus-planner-task-panel {
+    display: none;
+  }
+}
+
+/* Dark Theme Adjustments */
+.theme-dark .task-card {
+  background: var(--background-primary-alt);
+}
+
+.theme-dark .task-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}

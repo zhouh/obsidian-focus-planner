@@ -12,6 +12,7 @@ import { DailyNoteParser } from './dailyNoteParser';
 import { StatsManager } from './statsManager';
 import { FocusPlannerView, VIEW_TYPE_FOCUS_PLANNER, NewEventData } from './calendarView';
 import { FocusPlannerSettingTab } from './settingsTab';
+import { TaskParser, TaskPanelData, ParsedTask } from './taskParser';
 
 export default class FocusPlannerPlugin extends Plugin {
   settings: FocusPlannerSettings;
@@ -19,6 +20,7 @@ export default class FocusPlannerPlugin extends Plugin {
   caldavClient: CalDavClient;
   dailyNoteParser: DailyNoteParser;
   statsManager: StatsManager;
+  taskParser: TaskParser;
 
   private syncIntervalId: number | null = null;
 
@@ -28,6 +30,7 @@ export default class FocusPlannerPlugin extends Plugin {
     // Initialize components
     this.dailyNoteParser = new DailyNoteParser(this.app, this.settings);
     this.statsManager = new StatsManager(this.app, this.settings, this.dailyNoteParser);
+    this.taskParser = new TaskParser(this.app);
     this.feishuApi = new FeishuApi(
       this.settings.feishu,
       async (feishuSettings) => {
@@ -53,6 +56,8 @@ export default class FocusPlannerPlugin extends Plugin {
         view.onEventCreate = (data) => this.handleEventCreate(data);
         view.onEventDelete = (event) => this.handleEventDelete(event);
         view.onWeekChange = (weekStart) => this.getEventsForWeek(weekStart);
+        view.onGetTasks = (weekStart) => this.taskParser.getTasksForPanel(weekStart);
+        view.onTaskInferCategory = (task) => this.taskParser.inferCategory(task);
         return view;
       }
     );
