@@ -889,17 +889,22 @@ var CalDavClient = class {
     const patterns = [
       /<c:calendar-data[^>]*>([\s\S]*?)<\/c:calendar-data>/gi,
       /<cal:calendar-data[^>]*>([\s\S]*?)<\/cal:calendar-data>/gi,
-      /<C:calendar-data[^>]*>([\s\S]*?)<\/C:calendar-data>/gi,
-      /<CAL:calendar-data[^>]*>([\s\S]*?)<\/CAL:calendar-data>/gi,
       // Without namespace prefix
       /<calendar-data[^>]*>([\s\S]*?)<\/calendar-data>/gi
     ];
+    const processedContent = /* @__PURE__ */ new Set();
     let matchCount = 0;
     for (const pattern of patterns) {
       const matches = xml.matchAll(pattern);
       for (const match of matches) {
-        matchCount++;
         let icsData = match[1];
+        const contentHash = icsData.substring(0, 200);
+        if (processedContent.has(contentHash)) {
+          console.log("[Focus Planner] Skipping duplicate calendar-data");
+          continue;
+        }
+        processedContent.add(contentHash);
+        matchCount++;
         console.log("[Focus Planner] Found calendar-data, length:", icsData.length);
         icsData = icsData.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#xD;/gi, "\r").replace(/&#xA;/gi, "\n").replace(/&#13;/g, "\r").replace(/&#10;/g, "\n");
         if (matchCount <= 2) {
@@ -920,7 +925,14 @@ var CalDavClient = class {
         events.push(...parsedEvents);
       }
     }
-    return events;
+    const uniqueEvents = /* @__PURE__ */ new Map();
+    for (const event of events) {
+      if (!uniqueEvents.has(event.id)) {
+        uniqueEvents.set(event.id, event);
+      }
+    }
+    console.log("[Focus Planner] After dedup:", uniqueEvents.size, "unique events (from", events.length, "total)");
+    return Array.from(uniqueEvents.values());
   }
   // Parse iCalendar (.ics) format
   parseICalendar(icsData, queryStart, queryEnd) {
@@ -1352,8 +1364,7 @@ TaskDoneListByTime
     }
     const lines = content.split("\n");
     const result = [];
-    let currentCategory = null;
-    let sectionContentAdded = false;
+    let currentSyncCategory = null;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmedLine = line.trim();
@@ -1365,25 +1376,29 @@ TaskDoneListByTime
         }
       }
       if (foundCategory !== null) {
-        currentCategory = foundCategory;
-        sectionContentAdded = false;
         result.push(line);
-        if (byCategory[currentCategory].length > 0) {
-          const newContent = this.generateSectionContent(byCategory[currentCategory]);
-          if (newContent) {
-            result.push(newContent);
+        if (byCategory[foundCategory].length > 0) {
+          currentSyncCategory = foundCategory;
+          for (const event of byCategory[foundCategory]) {
+            const startTime = this.formatTime(event.start);
+            const endTime = this.formatTime(event.end);
+            let eventLine = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+            if (event.taskSourcePath && event.taskLineNumber) {
+              eventLine += ` [taskPath:: ${event.taskSourcePath}] [taskLine:: ${event.taskLineNumber}]`;
+            }
+            result.push(eventLine);
           }
-          sectionContentAdded = true;
+        } else {
+          currentSyncCategory = null;
         }
         continue;
       }
       if (trimmedLine.startsWith("### ") || trimmedLine.startsWith("## ")) {
-        currentCategory = null;
-        sectionContentAdded = false;
+        currentSyncCategory = null;
         result.push(line);
         continue;
       }
-      if (currentCategory !== null && sectionContentAdded) {
+      if (currentSyncCategory !== null) {
         if (trimmedLine.startsWith("-") && line.includes("[startTime::")) {
           continue;
         }

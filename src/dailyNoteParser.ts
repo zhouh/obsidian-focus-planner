@@ -334,8 +334,7 @@ TaskDoneListByTime
     // Process content line by line for more reliable section replacement
     const lines = content.split('\n');
     const result: string[] = [];
-    let currentCategory: EventCategory | null = null;
-    let sectionContentAdded = false;
+    let currentSyncCategory: EventCategory | null = null; // Track if we're in a section being synced
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -351,37 +350,42 @@ TaskDoneListByTime
       }
 
       if (foundCategory !== null) {
-        // We hit a new section heading
-        currentCategory = foundCategory;
-        sectionContentAdded = false;
-
-        // Add the heading
+        // We hit a section heading we care about
+        // First, add the heading
         result.push(line);
 
-        // If we have events for this category, add them now
-        if (byCategory[currentCategory].length > 0) {
-          const newContent = this.generateSectionContent(byCategory[currentCategory]);
-          if (newContent) {
-            result.push(newContent);
+        // Check if we have sync events for this category
+        if (byCategory[foundCategory].length > 0) {
+          // We have events to sync - add them and mark this section for cleanup
+          currentSyncCategory = foundCategory;
+          for (const event of byCategory[foundCategory]) {
+            const startTime = this.formatTime(event.start);
+            const endTime = this.formatTime(event.end);
+            let eventLine = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+            if (event.taskSourcePath && event.taskLineNumber) {
+              eventLine += ` [taskPath:: ${event.taskSourcePath}] [taskLine:: ${event.taskLineNumber}]`;
+            }
+            result.push(eventLine);
           }
-          sectionContentAdded = true;
+        } else {
+          // No sync events for this category - preserve existing content
+          currentSyncCategory = null;
         }
         continue;
       }
 
-      // Check if we hit a different heading (### or ##) that ends current section
+      // Check if we hit any other heading (### or ##) that ends current section
       if (trimmedLine.startsWith('### ') || trimmedLine.startsWith('## ')) {
-        currentCategory = null;
-        sectionContentAdded = false;
+        currentSyncCategory = null;
         result.push(line);
         continue;
       }
 
-      // If we're in a section that we're replacing with sync events, skip old event lines
-      if (currentCategory !== null && sectionContentAdded) {
+      // If we're in a section that has sync events, skip old event lines
+      if (currentSyncCategory !== null) {
         // Skip lines that look like events (start with - and have time fields)
         if (trimmedLine.startsWith('-') && line.includes('[startTime::')) {
-          continue; // Skip this old event line
+          continue; // Skip this old event line - we already added the new ones
         }
       }
 

@@ -565,22 +565,33 @@ export class CalDavClient {
 
     // Try multiple patterns for calendar-data elements
     // Different CalDAV servers may use different namespace prefixes
+    // NOTE: Using 'i' flag makes patterns case-insensitive, so we only need one pattern per namespace
     const patterns = [
       /<c:calendar-data[^>]*>([\s\S]*?)<\/c:calendar-data>/gi,
       /<cal:calendar-data[^>]*>([\s\S]*?)<\/cal:calendar-data>/gi,
-      /<C:calendar-data[^>]*>([\s\S]*?)<\/C:calendar-data>/gi,
-      /<CAL:calendar-data[^>]*>([\s\S]*?)<\/CAL:calendar-data>/gi,
       // Without namespace prefix
       /<calendar-data[^>]*>([\s\S]*?)<\/calendar-data>/gi,
     ];
+
+    // Use a Set to track which calendar-data content we've already processed
+    // This prevents duplicate events when multiple patterns match the same content
+    const processedContent = new Set<string>();
 
     let matchCount = 0;
     for (const pattern of patterns) {
       const matches = xml.matchAll(pattern);
       for (const match of matches) {
-        matchCount++;
         let icsData = match[1];
 
+        // Skip if we've already processed this exact content (prevents duplicates from overlapping patterns)
+        const contentHash = icsData.substring(0, 200); // Use first 200 chars as hash key
+        if (processedContent.has(contentHash)) {
+          console.log('[Focus Planner] Skipping duplicate calendar-data');
+          continue;
+        }
+        processedContent.add(contentHash);
+
+        matchCount++;
         console.log('[Focus Planner] Found calendar-data, length:', icsData.length);
 
         // Decode XML entities - Feishu uses &#xD;&#xA; for CRLF
@@ -631,7 +642,16 @@ export class CalDavClient {
       }
     }
 
-    return events;
+    // Final deduplication by event ID to ensure no duplicates
+    const uniqueEvents = new Map<string, CalendarEvent>();
+    for (const event of events) {
+      if (!uniqueEvents.has(event.id)) {
+        uniqueEvents.set(event.id, event);
+      }
+    }
+
+    console.log('[Focus Planner] After dedup:', uniqueEvents.size, 'unique events (from', events.length, 'total)');
+    return Array.from(uniqueEvents.values());
   }
 
   // Parse iCalendar (.ics) format
