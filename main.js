@@ -1168,8 +1168,8 @@ var DailyNoteParser = class {
           if (pomoMatch) {
             plannedPomodoros = parseInt(pomoMatch[1]);
           } else {
-            const cleanTitle = title.replace(/\d+🍅/, "").trim();
-            plannedPomodoros = this.findPomoInAIPlanning(cleanTitle, aiPlanningPomos);
+            const cleanTitle2 = title.replace(/\d+🍅/, "").trim();
+            plannedPomodoros = this.findPomoInAIPlanning(cleanTitle2, aiPlanningPomos);
           }
           let taskSourcePath;
           let taskLineNumber;
@@ -1181,9 +1181,10 @@ var DailyNoteParser = class {
           if (taskLineMatch) {
             taskLineNumber = parseInt(taskLineMatch[1]);
           }
+          const cleanTitle = title.replace(/\d+🍅/, "").trim();
           events.push({
-            id: `local-${filePath}-${startTimeStr}-${endTimeStr}`,
-            title: title.replace(/\d+🍅/, "").trim(),
+            id: `local-${filePath}-${startTimeStr}-${endTimeStr}-${cleanTitle}`,
+            title: cleanTitle,
             start: startDate,
             end: endDate,
             category: currentCategory,
@@ -1338,14 +1339,6 @@ TaskDoneListByTime
     for (const category of Object.values(EventCategory)) {
       byCategory[category].sort((a, b) => a.start.getTime() - b.start.getTime());
     }
-    const sections = {
-      ["focus" /* FOCUS */]: this.generateSectionContent(byCategory["focus" /* FOCUS */]),
-      ["meeting" /* MEETING */]: this.generateSectionContent(byCategory["meeting" /* MEETING */]),
-      ["personal" /* PERSONAL */]: this.generateSectionContent(byCategory["personal" /* PERSONAL */]),
-      ["rest" /* REST */]: this.generateSectionContent(byCategory["rest" /* REST */]),
-      ["admin" /* ADMIN */]: this.generateSectionContent(byCategory["admin" /* ADMIN */])
-    };
-    let result = content;
     const sectionHeadings = {
       ["focus" /* FOCUS */]: "### \u{1F3AF} \u4E13\u6CE8\u65F6\u95F4",
       ["meeting" /* MEETING */]: "### \u{1F4C5} \u4F1A\u8BAE",
@@ -1353,23 +1346,51 @@ TaskDoneListByTime
       ["rest" /* REST */]: "### \u{1F634} \u4F11\u606F",
       ["admin" /* ADMIN */]: "### \u{1F4DD} \u4E8B\u52A1"
     };
-    for (const category of Object.values(EventCategory)) {
-      const heading = sectionHeadings[category];
-      const newContent = sections[category];
-      if (byCategory[category].length === 0) {
+    const headingToCategory = {};
+    for (const [cat, heading] of Object.entries(sectionHeadings)) {
+      headingToCategory[heading] = cat;
+    }
+    const lines = content.split("\n");
+    const result = [];
+    let currentCategory = null;
+    let sectionContentAdded = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmedLine = line.trim();
+      let foundCategory = null;
+      for (const [heading, category] of Object.entries(headingToCategory)) {
+        if (trimmedLine === heading || trimmedLine.startsWith(heading)) {
+          foundCategory = category;
+          break;
+        }
+      }
+      if (foundCategory !== null) {
+        currentCategory = foundCategory;
+        sectionContentAdded = false;
+        result.push(line);
+        if (byCategory[currentCategory].length > 0) {
+          const newContent = this.generateSectionContent(byCategory[currentCategory]);
+          if (newContent) {
+            result.push(newContent);
+          }
+          sectionContentAdded = true;
+        }
         continue;
       }
-      const sectionRegex = new RegExp(
-        `(${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})\\n([\\s\\S]*?)(?=\\n###|\\n##|$)`,
-        "g"
-      );
-      if (result.includes(heading)) {
-        result = result.replace(sectionRegex, `$1
-${newContent}
-`);
+      if (trimmedLine.startsWith("### ") || trimmedLine.startsWith("## ")) {
+        currentCategory = null;
+        sectionContentAdded = false;
+        result.push(line);
+        continue;
       }
+      if (currentCategory !== null && sectionContentAdded) {
+        if (trimmedLine.startsWith("-") && line.includes("[startTime::")) {
+          continue;
+        }
+      }
+      result.push(line);
     }
-    return result;
+    return result.join("\n");
   }
   // Generate section content from events
   generateSectionContent(events) {
@@ -1405,23 +1426,23 @@ ${newContent}
     const newStartTime = this.formatTime(newStart);
     const newEndTime = this.formatTime(newEnd);
     const eventLinePattern = new RegExp(
-      `^(-\\s*${this.escapeRegex(event.title)}\\s*)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\]`,
+      `^(-\\s*${this.escapeRegex(event.title)}\\s*)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\](.*)$`,
       "gm"
     );
     const updatedContent = content.replace(
       eventLinePattern,
-      `$1[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]`
+      `$1[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]$2`
     );
     if (updatedContent === content) {
       const relaxedPattern = new RegExp(
-        `^(-\\s*.+?)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\]`,
+        `^(-\\s*.+?)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\](.*)$`,
         "gm"
       );
       const relaxedContent = content.replace(
         relaxedPattern,
-        (match, prefix) => {
+        (match, prefix, suffix) => {
           if (match.includes(event.title)) {
-            return `${prefix}[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]`;
+            return `${prefix}[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]${suffix}`;
           }
           return match;
         }
@@ -1473,7 +1494,10 @@ ${newContent}
     const content = await this.app.vault.read(file);
     const startTime = this.formatTime(event.start);
     const endTime = this.formatTime(event.end);
-    const eventLine = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+    let eventLine = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+    if (event.taskSourcePath && event.taskLineNumber) {
+      eventLine += ` [taskPath:: ${event.taskSourcePath}] [taskLine:: ${event.taskLineNumber}]`;
+    }
     const sectionHeadings = {
       ["focus" /* FOCUS */]: "### \u{1F3AF} \u4E13\u6CE8\u65F6\u95F4",
       ["meeting" /* MEETING */]: "### \u{1F4C5} \u4F1A\u8BAE",
@@ -2102,8 +2126,10 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
         return eventDate.getTime() === targetDate.getTime();
       });
       dayEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
+      const eventLayout = this.calculateEventLayout(dayEvents);
       for (const event of dayEvents) {
-        const eventEl = this.createEventElement(event, i);
+        const layout = eventLayout.get(event.id);
+        const eventEl = this.createEventElement(event, i, layout);
         dayColumn.appendChild(eventEl);
       }
       if (dayEvents.length === 0) {
@@ -2187,7 +2213,83 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
     const label = container.createDiv({ cls: "pomo-pie-label" });
     label.textContent = `${completed}/${planned}`;
   }
-  createEventElement(event, dayIndex) {
+  // Calculate layout for overlapping events
+  // Returns a map of event ID -> { column: number, totalColumns: number }
+  calculateEventLayout(events) {
+    const layout = /* @__PURE__ */ new Map();
+    if (events.length === 0)
+      return layout;
+    const groups = [];
+    for (const event of events) {
+      let addedToGroup = false;
+      for (const group of groups) {
+        const overlaps = group.some((e) => this.eventsOverlap(e, event));
+        if (overlaps) {
+          group.push(event);
+          addedToGroup = true;
+          break;
+        }
+      }
+      if (!addedToGroup) {
+        groups.push([event]);
+      }
+    }
+    let merged = true;
+    while (merged) {
+      merged = false;
+      for (let i = 0; i < groups.length; i++) {
+        for (let j = i + 1; j < groups.length; j++) {
+          const shouldMerge = groups[i].some(
+            (ei) => groups[j].some((ej) => this.eventsOverlap(ei, ej))
+          );
+          if (shouldMerge) {
+            groups[i].push(...groups[j]);
+            groups.splice(j, 1);
+            merged = true;
+            break;
+          }
+        }
+        if (merged)
+          break;
+      }
+    }
+    for (const group of groups) {
+      if (group.length === 1) {
+        layout.set(group[0].id, { column: 0, totalColumns: 1 });
+        continue;
+      }
+      group.sort((a, b) => a.start.getTime() - b.start.getTime());
+      const columns = [];
+      for (const event of group) {
+        let placed = false;
+        for (let col = 0; col < columns.length; col++) {
+          const colEvents = columns[col];
+          const overlapsInCol = colEvents.some((e) => this.eventsOverlap(e, event));
+          if (!overlapsInCol) {
+            colEvents.push(event);
+            layout.set(event.id, { column: col, totalColumns: 0 });
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          columns.push([event]);
+          layout.set(event.id, { column: columns.length - 1, totalColumns: 0 });
+        }
+      }
+      const totalCols = columns.length;
+      for (const event of group) {
+        const l = layout.get(event.id);
+        l.totalColumns = totalCols;
+      }
+    }
+    return layout;
+  }
+  // Check if two events overlap in time
+  eventsOverlap(a, b) {
+    return a.start < b.end && b.start < a.end;
+  }
+  createEventElement(event, dayIndex, layout) {
     const eventEl = document.createElement("div");
     eventEl.className = "calendar-event";
     eventEl.setAttribute("data-event-id", event.id);
@@ -2203,6 +2305,12 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
     const height = Math.max(30, duration * HOUR_HEIGHT - 2);
     eventEl.style.top = `${top}px`;
     eventEl.style.height = `${height}px`;
+    if (layout && layout.totalColumns > 1) {
+      const widthPercent = 100 / layout.totalColumns;
+      const leftPercent = layout.column * widthPercent;
+      eventEl.style.width = `calc(${widthPercent}% - 4px)`;
+      eventEl.style.left = `calc(${leftPercent}% + 2px)`;
+    }
     eventEl.style.backgroundColor = CATEGORY_COLORS[event.category];
     eventEl.style.borderLeftColor = this.darkenColor(CATEGORY_COLORS[event.category], 20);
     const titleEl = eventEl.createDiv({ cls: "event-title" });
@@ -2280,6 +2388,18 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
   showEventMenu(e, event) {
     const menu = new import_obsidian4.Menu();
     menu.addItem((item) => {
+      item.setTitle(`\u{1F4CC} ${event.title}`).setDisabled(true);
+    });
+    menu.addItem((item) => {
+      item.setTitle(`\u23F1\uFE0F ${this.formatTime(event.start)} - ${this.formatTime(event.end)}`).setDisabled(true);
+    });
+    if (event.plannedPomodoros) {
+      menu.addItem((item) => {
+        item.setTitle(`\u{1F3AF} \u8BA1\u5212 ${event.plannedPomodoros} \u4E2A\u756A\u8304\u949F`).setDisabled(true);
+      });
+    }
+    menu.addSeparator();
+    menu.addItem((item) => {
       item.setTitle("\u{1F345} \u5F00\u59CB\u756A\u8304\u949F").setIcon("timer").onClick(() => {
         if (this.onStartPomodoro) {
           this.onStartPomodoro(event);
@@ -2295,8 +2415,8 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
         });
       });
     }
-    menu.addSeparator();
     if (event.source === "local") {
+      menu.addSeparator();
       menu.addItem((item) => {
         item.setTitle("\u{1F5D1}\uFE0F \u5220\u9664\u65E5\u7A0B").setIcon("trash").onClick(async () => {
           if (this.onEventDelete) {
@@ -2308,15 +2428,6 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
             }
           }
         });
-      });
-      menu.addSeparator();
-    }
-    menu.addItem((item) => {
-      item.setTitle(`\u23F1\uFE0F ${this.formatTime(event.start)} - ${this.formatTime(event.end)}`).setDisabled(true);
-    });
-    if (event.plannedPomodoros) {
-      menu.addItem((item) => {
-        item.setTitle(`\u{1F3AF} \u8BA1\u5212 ${event.plannedPomodoros} \u4E2A\u756A\u8304\u949F`).setDisabled(true);
       });
     }
     menu.showAtMouseEvent(e);

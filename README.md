@@ -9,11 +9,19 @@ A calendar-centric task planner for Obsidian with Feishu/Lark calendar sync, pom
 ## Features / 功能
 
 ### Calendar View / 日历视图
-- **Weekly calendar view** with hour-by-hour time slots (8:00-22:00)
+- **Weekly calendar view** with hour-by-hour time slots (7:00-22:00)
 - **Drag and drop** events to reschedule
 - **Double-click** to create new events
-- **Right-click context menu** for quick actions (delete, start pomodoro, open file)
+- **Right-click context menu** for quick actions (view full title, delete, start pomodoro, open file)
+- **Overlapping events** display side-by-side automatically
 - **Current time indicator** with red line
+
+### Task Panel / 任务面板
+- **Task sidebar** showing overdue, today, and this week's tasks
+- **Drag tasks to calendar** to create events with auto-calculated duration
+- **Pomodoro estimates** from `[pomo:: N]` or `N🍅` format
+- **Task sources**: Inbox.md, Projects/, Areas/, Resources/
+- **Click to navigate** to task source file and line
 
 ### Feishu/Lark Calendar Sync / 飞书日历同步
 - **CalDAV sync** - Sync events from Feishu calendar via CalDAV protocol
@@ -110,6 +118,8 @@ The plugin reads and writes events in this format:
 3. **Delete events**: Right-click → Delete
 4. **Start pomodoro**: Right-click → Start Pomodoro (requires Pomodoro Timer plugin)
 5. **View source**: Right-click → Open in File
+6. **View full title**: Right-click on any event to see the complete title (useful for truncated events)
+7. **Drag task to calendar**: Drag a task from the right panel to a time slot to create an event
 
 ## Compatibility / 兼容性
 

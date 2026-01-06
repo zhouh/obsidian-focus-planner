@@ -254,7 +254,7 @@
 .calendar-event {
   position: absolute;
   left: 2px;
-  right: 2px;
+  width: calc(100% - 4px); /* Default full width, can be overridden by JS for overlapping events */
   border-radius: 4px;
   padding: 4px 6px;
   cursor: pointer;
@@ -262,6 +262,7 @@
   overflow: hidden;
   z-index: 1;
   transition: transform 0.1s ease, box-shadow 0.1s ease;
+  box-sizing: border-box;
 }
 
 .calendar-event:hover {

@@ -494,9 +494,13 @@ export class FocusPlannerView extends ItemView {
       // Sort by start time
       dayEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
 
-      // Render events at their time positions
+      // Calculate overlap layout for events
+      const eventLayout = this.calculateEventLayout(dayEvents);
+
+      // Render events at their time positions with overlap handling
       for (const event of dayEvents) {
-        const eventEl = this.createEventElement(event, i);
+        const layout = eventLayout.get(event.id);
+        const eventEl = this.createEventElement(event, i, layout);
         dayColumn.appendChild(eventEl);
       }
 
@@ -609,7 +613,109 @@ export class FocusPlannerView extends ItemView {
     label.textContent = `${completed}/${planned}`;
   }
 
-  private createEventElement(event: CalendarEvent, dayIndex: number): HTMLElement {
+  // Calculate layout for overlapping events
+  // Returns a map of event ID -> { column: number, totalColumns: number }
+  private calculateEventLayout(events: CalendarEvent[]): Map<string, { column: number; totalColumns: number }> {
+    const layout = new Map<string, { column: number; totalColumns: number }>();
+
+    if (events.length === 0) return layout;
+
+    // Group overlapping events
+    const groups: CalendarEvent[][] = [];
+
+    for (const event of events) {
+      // Find a group that this event overlaps with
+      let addedToGroup = false;
+
+      for (const group of groups) {
+        // Check if event overlaps with any event in the group
+        const overlaps = group.some(e => this.eventsOverlap(e, event));
+        if (overlaps) {
+          group.push(event);
+          addedToGroup = true;
+          break;
+        }
+      }
+
+      if (!addedToGroup) {
+        groups.push([event]);
+      }
+    }
+
+    // Merge groups that overlap with each other
+    let merged = true;
+    while (merged) {
+      merged = false;
+      for (let i = 0; i < groups.length; i++) {
+        for (let j = i + 1; j < groups.length; j++) {
+          // Check if any event in group i overlaps with any event in group j
+          const shouldMerge = groups[i].some(ei =>
+            groups[j].some(ej => this.eventsOverlap(ei, ej))
+          );
+          if (shouldMerge) {
+            groups[i].push(...groups[j]);
+            groups.splice(j, 1);
+            merged = true;
+            break;
+          }
+        }
+        if (merged) break;
+      }
+    }
+
+    // For each group, assign columns
+    for (const group of groups) {
+      if (group.length === 1) {
+        layout.set(group[0].id, { column: 0, totalColumns: 1 });
+        continue;
+      }
+
+      // Sort group by start time
+      group.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+      // Assign columns using a greedy algorithm
+      const columns: CalendarEvent[][] = [];
+
+      for (const event of group) {
+        // Find first column where event doesn't overlap with any existing event
+        let placed = false;
+        for (let col = 0; col < columns.length; col++) {
+          const colEvents = columns[col];
+          const overlapsInCol = colEvents.some(e => this.eventsOverlap(e, event));
+          if (!overlapsInCol) {
+            colEvents.push(event);
+            layout.set(event.id, { column: col, totalColumns: 0 }); // totalColumns set later
+            placed = true;
+            break;
+          }
+        }
+        if (!placed) {
+          columns.push([event]);
+          layout.set(event.id, { column: columns.length - 1, totalColumns: 0 });
+        }
+      }
+
+      // Update totalColumns for all events in this group
+      const totalCols = columns.length;
+      for (const event of group) {
+        const l = layout.get(event.id)!;
+        l.totalColumns = totalCols;
+      }
+    }
+
+    return layout;
+  }
+
+  // Check if two events overlap in time
+  private eventsOverlap(a: CalendarEvent, b: CalendarEvent): boolean {
+    return a.start < b.end && b.start < a.end;
+  }
+
+  private createEventElement(
+    event: CalendarEvent,
+    dayIndex: number,
+    layout?: { column: number; totalColumns: number }
+  ): HTMLElement {
     const eventEl = document.createElement('div');
     eventEl.className = 'calendar-event';
     eventEl.setAttribute('data-event-id', event.id);
@@ -632,6 +738,15 @@ export class FocusPlannerView extends ItemView {
 
     eventEl.style.top = `${top}px`;
     eventEl.style.height = `${height}px`;
+
+    // Handle overlapping events - adjust width and left position
+    if (layout && layout.totalColumns > 1) {
+      const widthPercent = 100 / layout.totalColumns;
+      const leftPercent = layout.column * widthPercent;
+      eventEl.style.width = `calc(${widthPercent}% - 4px)`;
+      eventEl.style.left = `calc(${leftPercent}% + 2px)`;
+    }
+
     eventEl.style.backgroundColor = CATEGORY_COLORS[event.category];
     eventEl.style.borderLeftColor = this.darkenColor(CATEGORY_COLORS[event.category], 20);
 
@@ -869,6 +984,30 @@ export class FocusPlannerView extends ItemView {
   private showEventMenu(e: MouseEvent, event: CalendarEvent) {
     const menu = new Menu();
 
+    // Show full event title at the top (for events with truncated text)
+    menu.addItem((item) => {
+      item
+        .setTitle(`📌 ${event.title}`)
+        .setDisabled(true);
+    });
+
+    // Show time info
+    menu.addItem((item) => {
+      item
+        .setTitle(`⏱️ ${this.formatTime(event.start)} - ${this.formatTime(event.end)}`)
+        .setDisabled(true);
+    });
+
+    if (event.plannedPomodoros) {
+      menu.addItem((item) => {
+        item
+          .setTitle(`🎯 计划 ${event.plannedPomodoros} 个番茄钟`)
+          .setDisabled(true);
+      });
+    }
+
+    menu.addSeparator();
+
     // Start Pomodoro option
     menu.addItem((item) => {
       item
@@ -895,10 +1034,10 @@ export class FocusPlannerView extends ItemView {
       });
     }
 
-    menu.addSeparator();
-
     // Delete option (only for local events)
     if (event.source === 'local') {
+      menu.addSeparator();
+
       menu.addItem((item) => {
         item
           .setTitle('🗑️ 删除日程')
@@ -913,23 +1052,6 @@ export class FocusPlannerView extends ItemView {
               }
             }
           });
-      });
-
-      menu.addSeparator();
-    }
-
-    // Show event info
-    menu.addItem((item) => {
-      item
-        .setTitle(`⏱️ ${this.formatTime(event.start)} - ${this.formatTime(event.end)}`)
-        .setDisabled(true);
-    });
-
-    if (event.plannedPomodoros) {
-      menu.addItem((item) => {
-        item
-          .setTitle(`🎯 计划 ${event.plannedPomodoros} 个番茄钟`)
-          .setDisabled(true);
       });
     }
 

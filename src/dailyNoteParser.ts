@@ -118,9 +118,10 @@ export class DailyNoteParser {
             taskLineNumber = parseInt(taskLineMatch[1]);
           }
 
+          const cleanTitle = title.replace(/\d+🍅/, '').trim();
           events.push({
-            id: `local-${filePath}-${startTimeStr}-${endTimeStr}`,
-            title: title.replace(/\d+🍅/, '').trim(),
+            id: `local-${filePath}-${startTimeStr}-${endTimeStr}-${cleanTitle}`,
+            title: cleanTitle,
             start: startDate,
             end: endDate,
             category: currentCategory,
@@ -316,18 +317,6 @@ TaskDoneListByTime
       byCategory[category].sort((a, b) => a.start.getTime() - b.start.getTime());
     }
 
-    // Generate new content for each section
-    const sections: Record<EventCategory, string> = {
-      [EventCategory.FOCUS]: this.generateSectionContent(byCategory[EventCategory.FOCUS]),
-      [EventCategory.MEETING]: this.generateSectionContent(byCategory[EventCategory.MEETING]),
-      [EventCategory.PERSONAL]: this.generateSectionContent(byCategory[EventCategory.PERSONAL]),
-      [EventCategory.REST]: this.generateSectionContent(byCategory[EventCategory.REST]),
-      [EventCategory.ADMIN]: this.generateSectionContent(byCategory[EventCategory.ADMIN]),
-    };
-
-    // Replace sections in content
-    let result = content;
-
     const sectionHeadings: Record<EventCategory, string> = {
       [EventCategory.FOCUS]: '### 🎯 专注时间',
       [EventCategory.MEETING]: '### 📅 会议',
@@ -336,29 +325,70 @@ TaskDoneListByTime
       [EventCategory.ADMIN]: '### 📝 事务',
     };
 
-    for (const category of Object.values(EventCategory)) {
-      const heading = sectionHeadings[category];
-      const newContent = sections[category];
+    // Create reverse mapping: heading -> category
+    const headingToCategory: Record<string, EventCategory> = {};
+    for (const [cat, heading] of Object.entries(sectionHeadings)) {
+      headingToCategory[heading] = cat as EventCategory;
+    }
 
-      // IMPORTANT: Skip updating ANY section if no events from sync for that category
-      // This preserves locally created events (e.g., from weekly-schedule, manual creation, or calendar UI)
-      // Only update sections that have actual events from Feishu/CalDAV sync
-      if (byCategory[category].length === 0) {
+    // Process content line by line for more reliable section replacement
+    const lines = content.split('\n');
+    const result: string[] = [];
+    let currentCategory: EventCategory | null = null;
+    let sectionContentAdded = false;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmedLine = line.trim();
+
+      // Check if this line is a section heading we care about
+      let foundCategory: EventCategory | null = null;
+      for (const [heading, category] of Object.entries(headingToCategory)) {
+        if (trimmedLine === heading || trimmedLine.startsWith(heading)) {
+          foundCategory = category;
+          break;
+        }
+      }
+
+      if (foundCategory !== null) {
+        // We hit a new section heading
+        currentCategory = foundCategory;
+        sectionContentAdded = false;
+
+        // Add the heading
+        result.push(line);
+
+        // If we have events for this category, add them now
+        if (byCategory[currentCategory].length > 0) {
+          const newContent = this.generateSectionContent(byCategory[currentCategory]);
+          if (newContent) {
+            result.push(newContent);
+          }
+          sectionContentAdded = true;
+        }
         continue;
       }
 
-      // Find and replace section
-      const sectionRegex = new RegExp(
-        `(${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\n([\\s\\S]*?)(?=\\n###|\\n##|$)`,
-        'g'
-      );
-
-      if (result.includes(heading)) {
-        result = result.replace(sectionRegex, `$1\n${newContent}\n`);
+      // Check if we hit a different heading (### or ##) that ends current section
+      if (trimmedLine.startsWith('### ') || trimmedLine.startsWith('## ')) {
+        currentCategory = null;
+        sectionContentAdded = false;
+        result.push(line);
+        continue;
       }
+
+      // If we're in a section that we're replacing with sync events, skip old event lines
+      if (currentCategory !== null && sectionContentAdded) {
+        // Skip lines that look like events (start with - and have time fields)
+        if (trimmedLine.startsWith('-') && line.includes('[startTime::')) {
+          continue; // Skip this old event line
+        }
+      }
+
+      result.push(line);
     }
 
-    return result;
+    return result.join('\n');
   }
 
   // Generate section content from events
@@ -406,29 +436,30 @@ TaskDoneListByTime
     const newEndTime = this.formatTime(newEnd);
 
     // Find the event line and update it
-    // Pattern: - EventTitle [startTime:: HH:MM] [endTime:: HH:MM]
+    // Pattern: - EventTitle [startTime:: HH:MM] [endTime:: HH:MM] (optional taskPath/taskLine)
+    // We need to preserve any trailing fields like [taskPath::] [taskLine::]
     const eventLinePattern = new RegExp(
-      `^(-\\s*${this.escapeRegex(event.title)}\\s*)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\]`,
+      `^(-\\s*${this.escapeRegex(event.title)}\\s*)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\](.*)$`,
       'gm'
     );
 
     const updatedContent = content.replace(
       eventLinePattern,
-      `$1[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]`
+      `$1[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]$2`
     );
 
     if (updatedContent === content) {
       // Try a more relaxed match if exact match fails
       const relaxedPattern = new RegExp(
-        `^(-\\s*.+?)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\]`,
+        `^(-\\s*.+?)\\[startTime::\\s*${oldStartTime}\\s*\\]\\s*\\[endTime::\\s*${oldEndTime}\\s*\\](.*)$`,
         'gm'
       );
       const relaxedContent = content.replace(
         relaxedPattern,
-        (match, prefix) => {
+        (match, prefix, suffix) => {
           // Only replace if title matches
           if (match.includes(event.title)) {
-            return `${prefix}[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]`;
+            return `${prefix}[startTime:: ${newStartTime}] [endTime:: ${newEndTime}]${suffix}`;
           }
           return match;
         }
@@ -491,7 +522,12 @@ TaskDoneListByTime
     const content = await this.app.vault.read(file);
     const startTime = this.formatTime(event.start);
     const endTime = this.formatTime(event.end);
-    const eventLine = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+
+    // Build event line with optional task link
+    let eventLine = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+    if (event.taskSourcePath && event.taskLineNumber) {
+      eventLine += ` [taskPath:: ${event.taskSourcePath}] [taskLine:: ${event.taskLineNumber}]`;
+    }
 
     // Find the appropriate section heading based on category
     const sectionHeadings: Record<EventCategory, string> = {
