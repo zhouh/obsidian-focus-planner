@@ -35,6 +35,9 @@ export interface NewEventData {
   category: EventCategory;
   start: Date;
   end: Date;
+  // Link to original task (for pomodoro tracking)
+  taskSourcePath?: string;
+  taskLineNumber?: number;
 }
 
 // Event creation modal
@@ -1273,12 +1276,14 @@ export class FocusPlannerView extends ItemView {
       category = this.onTaskInferCategory(task);
     }
 
-    // Create event
+    // Create event with task link
     const eventData: NewEventData = {
       title: task.title,
       category,
       start: startDate,
       end: endDate,
+      taskSourcePath: task.sourcePath,
+      taskLineNumber: task.lineNumber,
     };
 
     // Call event create callback

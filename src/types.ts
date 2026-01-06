@@ -36,9 +36,13 @@ export interface CalendarEvent {
   plannedPomodoros?: number;
   completedPomodoros?: number;
 
-  // Link to source
+  // Link to source (daily note)
   filePath?: string;
   feishuEventId?: string;
+
+  // Link to original task (for pomodoro tracking)
+  taskSourcePath?: string;
+  taskLineNumber?: number;
 }
 
 // Pomodoro record

@@ -339,6 +339,22 @@ export class TaskParser {
   }
 
   /**
+   * Find a task by file path and line number (exact location)
+   */
+  async findTaskByLocation(sourcePath: string, lineNumber: number): Promise<ParsedTask | null> {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof TFile)) return null;
+
+    const content = await this.app.vault.read(file);
+    const lines = content.split('\n');
+
+    if (lineNumber < 1 || lineNumber > lines.length) return null;
+
+    const line = lines[lineNumber - 1];
+    return this.parseTaskLine(line, sourcePath, lineNumber);
+  }
+
+  /**
    * Find a task by title (fuzzy match)
    */
   async findTaskByTitle(title: string): Promise<ParsedTask | null> {

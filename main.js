@@ -1171,6 +1171,16 @@ var DailyNoteParser = class {
             const cleanTitle = title.replace(/\d+🍅/, "").trim();
             plannedPomodoros = this.findPomoInAIPlanning(cleanTitle, aiPlanningPomos);
           }
+          let taskSourcePath;
+          let taskLineNumber;
+          const taskPathMatch = line.match(/\[taskPath::\s*([^\]]+)\s*\]/);
+          const taskLineMatch = line.match(/\[taskLine::\s*(\d+)\s*\]/);
+          if (taskPathMatch) {
+            taskSourcePath = taskPathMatch[1].trim();
+          }
+          if (taskLineMatch) {
+            taskLineNumber = parseInt(taskLineMatch[1]);
+          }
           events.push({
             id: `local-${filePath}-${startTimeStr}-${endTimeStr}`,
             title: title.replace(/\d+🍅/, "").trim(),
@@ -1179,7 +1189,9 @@ var DailyNoteParser = class {
             category: currentCategory,
             source: "local",
             filePath,
-            plannedPomodoros
+            plannedPomodoros,
+            taskSourcePath,
+            taskLineNumber
           });
         }
       }
@@ -1367,7 +1379,11 @@ ${newContent}
     return events.map((event) => {
       const startTime = this.formatTime(event.start);
       const endTime = this.formatTime(event.end);
-      return `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+      let line = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+      if (event.taskSourcePath && event.taskLineNumber) {
+        line += ` [taskPath:: ${event.taskSourcePath}] [taskLine:: ${event.taskLineNumber}]`;
+      }
+      return line;
     }).join("\n");
   }
   // Format time as HH:MM
@@ -2555,7 +2571,9 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
       title: task.title,
       category,
       start: startDate,
-      end: endDate
+      end: endDate,
+      taskSourcePath: task.sourcePath,
+      taskLineNumber: task.lineNumber
     };
     if (this.onEventCreate) {
       this.onEventCreate(eventData).then(() => {
@@ -3010,6 +3028,20 @@ var TaskParser = class {
     return false;
   }
   /**
+   * Find a task by file path and line number (exact location)
+   */
+  async findTaskByLocation(sourcePath, lineNumber) {
+    const file = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(file instanceof import_obsidian6.TFile))
+      return null;
+    const content = await this.app.vault.read(file);
+    const lines = content.split("\n");
+    if (lineNumber < 1 || lineNumber > lines.length)
+      return null;
+    const line = lines[lineNumber - 1];
+    return this.parseTaskLine(line, sourcePath, lineNumber);
+  }
+  /**
    * Find a task by title (fuzzy match)
    */
   async findTaskByTitle(title) {
@@ -3297,17 +3329,29 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
     if (pomodoroPlugin) {
       this.app.commands.executeCommandById("pomodoro-timer:toggle-timer");
-      const task = await this.taskParser.findTaskByTitle(event.title);
-      if (task) {
-        const success = await this.taskParser.incrementTaskDone(task);
-        if (success) {
-          const newDone = task.pomodorosDone + 1;
-          const total = task.pomodoros > 0 ? `/${task.pomodoros}` : "";
-          new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}
-\u{1F4DD} \u5DF2\u5B8C\u6210: ${newDone}${total}\u{1F345}`);
-        } else {
-          new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
+      let taskUpdated = false;
+      let newDone = 0;
+      let totalPomos = 0;
+      if (event.taskSourcePath && event.taskLineNumber) {
+        const task = await this.taskParser.findTaskByLocation(event.taskSourcePath, event.taskLineNumber);
+        if (task) {
+          taskUpdated = await this.taskParser.incrementTaskDone(task);
+          newDone = task.pomodorosDone + 1;
+          totalPomos = task.pomodoros;
         }
+      }
+      if (!taskUpdated) {
+        const task = await this.taskParser.findTaskByTitle(event.title);
+        if (task) {
+          taskUpdated = await this.taskParser.incrementTaskDone(task);
+          newDone = task.pomodorosDone + 1;
+          totalPomos = task.pomodoros;
+        }
+      }
+      if (taskUpdated) {
+        const total = totalPomos > 0 ? `/${totalPomos}` : "";
+        new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}
+\u{1F4DD} \u5DF2\u5B8C\u6210: ${newDone}${total}\u{1F345}`);
       } else {
         new import_obsidian7.Notice(`\u{1F345} \u5F00\u59CB\u756A\u8304\u949F: ${event.title}`);
       }
@@ -3325,7 +3369,7 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     await this.dailyNoteParser.removeEventFromDailyNote(date, event);
     await this.refreshView();
   }
-  // Handle event creation (double-click on calendar)
+  // Handle event creation (double-click on calendar or drag from task panel)
   async handleEventCreate(data) {
     const date = new Date(data.start);
     date.setHours(0, 0, 0, 0);
@@ -3335,7 +3379,10 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
       start: data.start,
       end: data.end,
       category: data.category,
-      source: "local"
+      source: "local",
+      // Save task link for pomodoro tracking
+      taskSourcePath: data.taskSourcePath,
+      taskLineNumber: data.taskLineNumber
     };
     await this.dailyNoteParser.addEventToDailyNote(date, newEvent);
     await this.refreshView();

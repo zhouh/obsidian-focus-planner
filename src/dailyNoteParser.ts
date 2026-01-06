@@ -106,6 +106,18 @@ export class DailyNoteParser {
             plannedPomodoros = this.findPomoInAIPlanning(cleanTitle, aiPlanningPomos);
           }
 
+          // Extract task link (for pomodoro tracking)
+          let taskSourcePath: string | undefined;
+          let taskLineNumber: number | undefined;
+          const taskPathMatch = line.match(/\[taskPath::\s*([^\]]+)\s*\]/);
+          const taskLineMatch = line.match(/\[taskLine::\s*(\d+)\s*\]/);
+          if (taskPathMatch) {
+            taskSourcePath = taskPathMatch[1].trim();
+          }
+          if (taskLineMatch) {
+            taskLineNumber = parseInt(taskLineMatch[1]);
+          }
+
           events.push({
             id: `local-${filePath}-${startTimeStr}-${endTimeStr}`,
             title: title.replace(/\d+🍅/, '').trim(),
@@ -115,6 +127,8 @@ export class DailyNoteParser {
             source: 'local',
             filePath: filePath,
             plannedPomodoros,
+            taskSourcePath,
+            taskLineNumber,
           });
         }
       }
@@ -357,7 +371,14 @@ TaskDoneListByTime
       .map((event) => {
         const startTime = this.formatTime(event.start);
         const endTime = this.formatTime(event.end);
-        return `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+        let line = `- ${event.title} [startTime:: ${startTime}] [endTime:: ${endTime}]`;
+
+        // Add task link if available (for pomodoro tracking)
+        if (event.taskSourcePath && event.taskLineNumber) {
+          line += ` [taskPath:: ${event.taskSourcePath}] [taskLine:: ${event.taskLineNumber}]`;
+        }
+
+        return line;
       })
       .join('\n');
   }

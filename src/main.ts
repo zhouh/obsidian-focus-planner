@@ -340,17 +340,34 @@ export default class FocusPlannerPlugin extends Plugin {
       // @ts-ignore
       this.app.commands.executeCommandById('pomodoro-timer:toggle-timer');
 
-      // Find matching task and increment done count
-      const task = await this.taskParser.findTaskByTitle(event.title);
-      if (task) {
-        const success = await this.taskParser.incrementTaskDone(task);
-        if (success) {
-          const newDone = task.pomodorosDone + 1;
-          const total = task.pomodoros > 0 ? `/${task.pomodoros}` : '';
-          new Notice(`🍅 开始番茄钟: ${event.title}\n📝 已完成: ${newDone}${total}🍅`);
-        } else {
-          new Notice(`🍅 开始番茄钟: ${event.title}`);
+      // Try to update the linked task
+      let taskUpdated = false;
+      let newDone = 0;
+      let totalPomos = 0;
+
+      // First, try using the saved task link (from drag-and-drop)
+      if (event.taskSourcePath && event.taskLineNumber) {
+        const task = await this.taskParser.findTaskByLocation(event.taskSourcePath, event.taskLineNumber);
+        if (task) {
+          taskUpdated = await this.taskParser.incrementTaskDone(task);
+          newDone = task.pomodorosDone + 1;
+          totalPomos = task.pomodoros;
         }
+      }
+
+      // Fallback: try to find by title match
+      if (!taskUpdated) {
+        const task = await this.taskParser.findTaskByTitle(event.title);
+        if (task) {
+          taskUpdated = await this.taskParser.incrementTaskDone(task);
+          newDone = task.pomodorosDone + 1;
+          totalPomos = task.pomodoros;
+        }
+      }
+
+      if (taskUpdated) {
+        const total = totalPomos > 0 ? `/${totalPomos}` : '';
+        new Notice(`🍅 开始番茄钟: ${event.title}\n📝 已完成: ${newDone}${total}🍅`);
       } else {
         new Notice(`🍅 开始番茄钟: ${event.title}`);
       }
@@ -375,7 +392,7 @@ export default class FocusPlannerPlugin extends Plugin {
     await this.refreshView();
   }
 
-  // Handle event creation (double-click on calendar)
+  // Handle event creation (double-click on calendar or drag from task panel)
   private async handleEventCreate(data: NewEventData): Promise<void> {
     const date = new Date(data.start);
     date.setHours(0, 0, 0, 0);
@@ -388,6 +405,9 @@ export default class FocusPlannerPlugin extends Plugin {
       end: data.end,
       category: data.category,
       source: 'local',
+      // Save task link for pomodoro tracking
+      taskSourcePath: data.taskSourcePath,
+      taskLineNumber: data.taskLineNumber,
     };
 
     // Add to daily note
