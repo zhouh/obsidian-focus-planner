@@ -1175,6 +1175,15 @@ export class FocusPlannerView extends ItemView {
       metaEl.createSpan({ cls: 'task-tags', text: tagsStr });
     }
 
+    // Click to open source file at line number
+    card.addEventListener('click', (e: MouseEvent) => {
+      // Don't trigger if starting a drag
+      if (e.detail === 1) {
+        // Single click - open file at line
+        this.openTaskSource(task);
+      }
+    });
+
     // Drag events
     card.addEventListener('dragstart', (e: DragEvent) => {
       card.addClass('dragging');
@@ -1286,5 +1295,29 @@ export class FocusPlannerView extends ItemView {
   async refreshTaskPanel() {
     await this.loadTasksForPanel();
     this.renderTaskPanel();
+  }
+
+  // Open task source file at specific line
+  private openTaskSource(task: ParsedTask) {
+    if (!task.sourcePath) return;
+
+    // Open the file and navigate to the line
+    const file = this.app.vault.getAbstractFileByPath(task.sourcePath);
+    if (file) {
+      // Open file in a new leaf
+      this.app.workspace.openLinkText('', task.sourcePath).then(() => {
+        // After opening, scroll to the line
+        const activeView = this.app.workspace.getActiveViewOfType(ItemView);
+        if (activeView) {
+          // @ts-ignore - accessing internal editor API
+          const editor = activeView.editor;
+          if (editor) {
+            const line = task.lineNumber - 1; // Editor uses 0-based indexing
+            editor.setCursor({ line, ch: 0 });
+            editor.scrollIntoView({ from: { line, ch: 0 }, to: { line, ch: 0 } }, true);
+          }
+        }
+      });
+    }
   }
 }

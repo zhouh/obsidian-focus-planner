@@ -755,14 +755,32 @@ body.focus-planner-dragging * {
   background: var(--background-primary);
   border-radius: 6px;
   border-left: 3px solid var(--interactive-accent);
-  cursor: grab;
+  cursor: pointer;
   transition: all 0.15s ease;
   font-size: 0.85em;
+  position: relative;
 }
 
 .task-card:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   transform: translateX(2px);
+  background: var(--background-primary-alt);
+}
+
+/* Click hint icon */
+.task-card::after {
+  content: '↗';
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 0.7em;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.task-card:hover::after {
+  opacity: 0.7;
 }
 
 .task-card:active {

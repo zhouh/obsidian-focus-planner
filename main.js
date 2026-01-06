@@ -2481,6 +2481,11 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
       const tagsStr = task.tags.slice(0, 2).map((t) => `#${t}`).join(" ");
       metaEl.createSpan({ cls: "task-tags", text: tagsStr });
     }
+    card.addEventListener("click", (e) => {
+      if (e.detail === 1) {
+        this.openTaskSource(task);
+      }
+    });
     card.addEventListener("dragstart", (e) => {
       var _a;
       card.addClass("dragging");
@@ -2564,6 +2569,25 @@ var FocusPlannerView = class extends import_obsidian4.ItemView {
   async refreshTaskPanel() {
     await this.loadTasksForPanel();
     this.renderTaskPanel();
+  }
+  // Open task source file at specific line
+  openTaskSource(task) {
+    if (!task.sourcePath)
+      return;
+    const file = this.app.vault.getAbstractFileByPath(task.sourcePath);
+    if (file) {
+      this.app.workspace.openLinkText("", task.sourcePath).then(() => {
+        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian4.ItemView);
+        if (activeView) {
+          const editor = activeView.editor;
+          if (editor) {
+            const line = task.lineNumber - 1;
+            editor.setCursor({ line, ch: 0 });
+            editor.scrollIntoView({ from: { line, ch: 0 }, to: { line, ch: 0 } }, true);
+          }
+        }
+      });
+    }
   }
 };
 
