@@ -26,6 +26,7 @@ export default class FocusPlannerPlugin extends Plugin {
 
   private syncIntervalId: number | null = null;
   private timerUpdateIntervalId: number | null = null;
+  private timerUnsubscribe: (() => void) | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -104,6 +105,10 @@ export default class FocusPlannerPlugin extends Plugin {
     this.stopAutoSync();
     this.stopTimerUpdate();
     this.floatingTimer?.hide();
+    if (this.timerUnsubscribe) {
+      this.timerUnsubscribe();
+      this.timerUnsubscribe = null;
+    }
   }
 
   async loadSettings() {
@@ -492,26 +497,76 @@ export default class FocusPlannerPlugin extends Plugin {
     }
   }
 
-  // Start polling pomodoro timer state and updating floating window
+  // Start subscribing to pomodoro timer state
   private startTimerUpdate() {
     this.stopTimerUpdate();
 
-    // Poll every 500ms to update the floating timer display
-    this.timerUpdateIntervalId = window.setInterval(() => {
-      this.updateFloatingTimer();
-    }, 500);
+    // @ts-ignore - accessing internal API
+    const pomodoroPlugin = this.app.plugins?.plugins?.['pomodoro-timer'];
+
+    if (!pomodoroPlugin) {
+      console.log('[Focus Planner] Pomodoro plugin not found');
+      return;
+    }
+
+    // The pomodoro-timer plugin uses a Svelte store for timer state
+    // Try to subscribe to the timer store
+    // @ts-ignore
+    const timerStore = pomodoroPlugin.timer;
+
+    if (timerStore && typeof timerStore.subscribe === 'function') {
+      console.log('[Focus Planner] Subscribing to pomodoro timer store');
+
+      // Subscribe to timer state changes
+      this.timerUnsubscribe = timerStore.subscribe((state: any) => {
+        if (!state) return;
+
+        // State has: running, remained { millis, human }, mode, count, elapsed, finished
+        const running = state.running || false;
+        const remained = state.remained || { millis: 0 };
+        const mode = state.mode || 'work';
+
+        // Calculate minutes and seconds from millis
+        const totalSeconds = Math.ceil(remained.millis / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        // Update the floating timer display
+        this.floatingTimer.updateDisplay(minutes, seconds, running, mode);
+
+        // If timer finished, hide window after a delay
+        if (state.finished && !running) {
+          setTimeout(() => {
+            if (!this.timerUpdateIntervalId && this.floatingTimer.isVisible()) {
+              this.floatingTimer.hide();
+              this.stopTimerUpdate();
+            }
+          }, 3000);
+        }
+      });
+    } else {
+      // Fallback: use polling if subscribe is not available
+      console.log('[Focus Planner] Timer store not found, using polling fallback');
+      this.timerUpdateIntervalId = window.setInterval(() => {
+        this.updateFloatingTimerPolling();
+      }, 500);
+    }
   }
 
-  // Stop timer update interval
+  // Stop timer update interval and unsubscribe
   private stopTimerUpdate() {
+    if (this.timerUnsubscribe) {
+      this.timerUnsubscribe();
+      this.timerUnsubscribe = null;
+    }
     if (this.timerUpdateIntervalId !== null) {
       window.clearInterval(this.timerUpdateIntervalId);
       this.timerUpdateIntervalId = null;
     }
   }
 
-  // Update the floating timer display with current pomodoro state
-  private updateFloatingTimer() {
+  // Fallback: polling update for floating timer
+  private updateFloatingTimerPolling() {
     // @ts-ignore - accessing internal API
     const pomodoroPlugin = this.app.plugins?.plugins?.['pomodoro-timer'];
 
@@ -521,47 +576,29 @@ export default class FocusPlannerPlugin extends Plugin {
       return;
     }
 
-    // Try to get timer state from the pomodoro plugin
-    // The pomodoro-timer plugin exposes its state via different properties
+    // Try to get current state via get() if available
     // @ts-ignore
-    const timerState = pomodoroPlugin.timer || pomodoroPlugin.state;
+    const timerStore = pomodoroPlugin.timer;
 
-    if (timerState) {
-      const running = timerState.running || false;
-      const remained = timerState.remained || { minutes: 0, seconds: 0 };
-      const mode = timerState.mode || 'work';
+    if (timerStore) {
+      // Try to get current value - Svelte stores have a get() or we can read from DOM
+      let state: any = null;
 
-      // Update the floating timer display
-      this.floatingTimer.updateDisplay(
-        remained.minutes || 0,
-        remained.seconds || 0,
-        running,
-        mode
-      );
-
-      // If timer is not running and not paused (i.e., completed or stopped), hide the window
-      if (!running && remained.minutes === 0 && remained.seconds === 0) {
-        this.stopTimerUpdate();
-        // Keep window visible for a moment to show completion
-        setTimeout(() => {
-          if (!this.timerUpdateIntervalId) {
-            this.floatingTimer.hide();
-          }
-        }, 3000);
+      // Some Svelte stores allow direct access to the current value
+      if (typeof timerStore.get === 'function') {
+        state = timerStore.get();
       }
-    } else {
-      // Try alternative property names used by different versions
-      // @ts-ignore
-      const time = pomodoroPlugin.timeRemaining || pomodoroPlugin.remainingTime;
-      // @ts-ignore
-      const isRunning = pomodoroPlugin.isRunning || pomodoroPlugin.running;
-      // @ts-ignore
-      const currentMode = pomodoroPlugin.currentMode || pomodoroPlugin.mode || 'work';
 
-      if (typeof time === 'number') {
-        const minutes = Math.floor(time / 60);
-        const seconds = time % 60;
-        this.floatingTimer.updateDisplay(minutes, seconds, isRunning, currentMode);
+      if (state) {
+        const running = state.running || false;
+        const remained = state.remained || { millis: 0 };
+        const mode = state.mode || 'work';
+
+        const totalSeconds = Math.ceil(remained.millis / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        this.floatingTimer.updateDisplay(minutes, seconds, running, mode);
       }
     }
   }

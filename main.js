@@ -3564,6 +3564,7 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     super(...arguments);
     this.syncIntervalId = null;
     this.timerUpdateIntervalId = null;
+    this.timerUnsubscribe = null;
   }
   async onload() {
     await this.loadSettings();
@@ -3627,6 +3628,10 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     this.stopAutoSync();
     this.stopTimerUpdate();
     (_a = this.floatingTimer) == null ? void 0 : _a.hide();
+    if (this.timerUnsubscribe) {
+      this.timerUnsubscribe();
+      this.timerUnsubscribe = null;
+    }
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -3909,22 +3914,57 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
       this.syncIntervalId = null;
     }
   }
-  // Start polling pomodoro timer state and updating floating window
+  // Start subscribing to pomodoro timer state
   startTimerUpdate() {
+    var _a, _b;
     this.stopTimerUpdate();
-    this.timerUpdateIntervalId = window.setInterval(() => {
-      this.updateFloatingTimer();
-    }, 500);
+    const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
+    if (!pomodoroPlugin) {
+      console.log("[Focus Planner] Pomodoro plugin not found");
+      return;
+    }
+    const timerStore = pomodoroPlugin.timer;
+    if (timerStore && typeof timerStore.subscribe === "function") {
+      console.log("[Focus Planner] Subscribing to pomodoro timer store");
+      this.timerUnsubscribe = timerStore.subscribe((state) => {
+        if (!state)
+          return;
+        const running = state.running || false;
+        const remained = state.remained || { millis: 0 };
+        const mode = state.mode || "work";
+        const totalSeconds = Math.ceil(remained.millis / 1e3);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        this.floatingTimer.updateDisplay(minutes, seconds, running, mode);
+        if (state.finished && !running) {
+          setTimeout(() => {
+            if (!this.timerUpdateIntervalId && this.floatingTimer.isVisible()) {
+              this.floatingTimer.hide();
+              this.stopTimerUpdate();
+            }
+          }, 3e3);
+        }
+      });
+    } else {
+      console.log("[Focus Planner] Timer store not found, using polling fallback");
+      this.timerUpdateIntervalId = window.setInterval(() => {
+        this.updateFloatingTimerPolling();
+      }, 500);
+    }
   }
-  // Stop timer update interval
+  // Stop timer update interval and unsubscribe
   stopTimerUpdate() {
+    if (this.timerUnsubscribe) {
+      this.timerUnsubscribe();
+      this.timerUnsubscribe = null;
+    }
     if (this.timerUpdateIntervalId !== null) {
       window.clearInterval(this.timerUpdateIntervalId);
       this.timerUpdateIntervalId = null;
     }
   }
-  // Update the floating timer display with current pomodoro state
-  updateFloatingTimer() {
+  // Fallback: polling update for floating timer
+  updateFloatingTimerPolling() {
     var _a, _b;
     const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
     if (!pomodoroPlugin) {
@@ -3932,33 +3972,20 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
       this.floatingTimer.hide();
       return;
     }
-    const timerState = pomodoroPlugin.timer || pomodoroPlugin.state;
-    if (timerState) {
-      const running = timerState.running || false;
-      const remained = timerState.remained || { minutes: 0, seconds: 0 };
-      const mode = timerState.mode || "work";
-      this.floatingTimer.updateDisplay(
-        remained.minutes || 0,
-        remained.seconds || 0,
-        running,
-        mode
-      );
-      if (!running && remained.minutes === 0 && remained.seconds === 0) {
-        this.stopTimerUpdate();
-        setTimeout(() => {
-          if (!this.timerUpdateIntervalId) {
-            this.floatingTimer.hide();
-          }
-        }, 3e3);
+    const timerStore = pomodoroPlugin.timer;
+    if (timerStore) {
+      let state = null;
+      if (typeof timerStore.get === "function") {
+        state = timerStore.get();
       }
-    } else {
-      const time = pomodoroPlugin.timeRemaining || pomodoroPlugin.remainingTime;
-      const isRunning = pomodoroPlugin.isRunning || pomodoroPlugin.running;
-      const currentMode = pomodoroPlugin.currentMode || pomodoroPlugin.mode || "work";
-      if (typeof time === "number") {
-        const minutes = Math.floor(time / 60);
-        const seconds = time % 60;
-        this.floatingTimer.updateDisplay(minutes, seconds, isRunning, currentMode);
+      if (state) {
+        const running = state.running || false;
+        const remained = state.remained || { millis: 0 };
+        const mode = state.mode || "work";
+        const totalSeconds = Math.ceil(remained.millis / 1e3);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        this.floatingTimer.updateDisplay(minutes, seconds, running, mode);
       }
     }
   }
