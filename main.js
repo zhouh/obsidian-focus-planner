@@ -3212,17 +3212,365 @@ var TaskParser = class {
   }
 };
 
+// src/floatingTimer.ts
+var electron = require("electron");
+var FloatingTimerWindow = class {
+  constructor() {
+    this.window = null;
+    this.updateInterval = null;
+    this.currentTaskTitle = "";
+    this.onComplete = null;
+    // ========== FALLBACK IMPLEMENTATION ==========
+    // For when Electron BrowserWindow is not available
+    this.fallbackEl = null;
+  }
+  /**
+   * Show the floating timer window
+   */
+  show(taskTitle, onComplete) {
+    this.currentTaskTitle = taskTitle;
+    this.onComplete = onComplete || null;
+    if (this.window) {
+      this.window.focus();
+      return;
+    }
+    try {
+      const { BrowserWindow } = electron.remote || electron;
+      this.window = new BrowserWindow({
+        width: 200,
+        height: 80,
+        x: this.getScreenWidth() - 220,
+        y: 20,
+        frame: false,
+        transparent: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        resizable: false,
+        focusable: true,
+        hasShadow: true,
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false
+        }
+      });
+      const html = this.generateHTML();
+      this.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      this.window.on("closed", () => {
+        this.window = null;
+        this.stopUpdating();
+      });
+      this.startUpdating();
+    } catch (error) {
+      console.error("[Focus Planner] Failed to create floating window:", error);
+      this.showFallbackTimer(taskTitle);
+    }
+  }
+  /**
+   * Hide the floating timer window
+   */
+  hide() {
+    if (this.window) {
+      this.window.close();
+      this.window = null;
+    }
+    this.stopUpdating();
+    this.hideFallbackTimer();
+  }
+  /**
+   * Update the timer display
+   */
+  updateDisplay(minutes, seconds, isRunning, mode = "work") {
+    if (this.window && !this.window.isDestroyed()) {
+      const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+      const modeEmoji = mode === "work" ? "\u{1F345}" : "\u2615";
+      const statusClass = isRunning ? "running" : "paused";
+      this.window.webContents.executeJavaScript(`
+        document.getElementById('time').textContent = '${timeStr}';
+        document.getElementById('mode').textContent = '${modeEmoji}';
+        document.getElementById('container').className = '${statusClass}';
+        document.getElementById('task').textContent = '${this.escapeHtml(this.currentTaskTitle.substring(0, 20))}';
+      `).catch(() => {
+      });
+    }
+    this.updateFallbackTimer(minutes, seconds, isRunning, mode);
+  }
+  /**
+   * Get screen width for positioning
+   */
+  getScreenWidth() {
+    try {
+      const { screen } = electron.remote || electron;
+      const primaryDisplay = screen.getPrimaryDisplay();
+      return primaryDisplay.workAreaSize.width;
+    } catch (e) {
+      return 1920;
+    }
+  }
+  /**
+   * Generate HTML for the floating window
+   */
+  generateHTML() {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      overflow: hidden;
+    }
+    #container {
+      background: rgba(30, 30, 30, 0.95);
+      border-radius: 12px;
+      padding: 12px 16px;
+      color: white;
+      cursor: move;
+      -webkit-app-region: drag;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    #container.running {
+      border-color: rgba(76, 175, 80, 0.5);
+    }
+    #container.paused {
+      border-color: rgba(255, 193, 7, 0.5);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    #mode {
+      font-size: 18px;
+    }
+    #task {
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.7);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+    .close-btn {
+      font-size: 14px;
+      cursor: pointer;
+      opacity: 0.5;
+      -webkit-app-region: no-drag;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .close-btn:hover {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.1);
+    }
+    #time {
+      font-size: 32px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      letter-spacing: 2px;
+    }
+    .running #time {
+      color: #4CAF50;
+    }
+    .paused #time {
+      color: #FFC107;
+    }
+  </style>
+</head>
+<body>
+  <div id="container" class="running">
+    <div class="header">
+      <span id="mode">\u{1F345}</span>
+      <span id="task">${this.escapeHtml(this.currentTaskTitle.substring(0, 20))}</span>
+      <span class="close-btn" onclick="window.close()">\u2715</span>
+    </div>
+    <div id="time">25:00</div>
+  </div>
+  <script>
+    // Allow dragging
+    document.getElementById('container').addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('close-btn')) return;
+    });
+  <\/script>
+</body>
+</html>
+    `;
+  }
+  /**
+   * Escape HTML special characters
+   */
+  escapeHtml(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+  /**
+   * Start the update interval
+   */
+  startUpdating() {
+  }
+  /**
+   * Stop the update interval
+   */
+  stopUpdating() {
+    if (this.updateInterval !== null) {
+      window.clearInterval(this.updateInterval);
+      this.updateInterval = null;
+    }
+  }
+  showFallbackTimer(taskTitle) {
+    if (this.fallbackEl)
+      return;
+    this.fallbackEl = document.createElement("div");
+    this.fallbackEl.id = "focus-planner-floating-timer";
+    this.fallbackEl.innerHTML = `
+      <div class="fp-float-header">
+        <span class="fp-float-mode">\u{1F345}</span>
+        <span class="fp-float-task">${this.escapeHtml(taskTitle.substring(0, 15))}</span>
+        <span class="fp-float-close">\u2715</span>
+      </div>
+      <div class="fp-float-time">25:00</div>
+    `;
+    const style = document.createElement("style");
+    style.id = "focus-planner-floating-timer-style";
+    style.textContent = `
+      #focus-planner-floating-timer {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 99999;
+        background: var(--background-primary);
+        border: 1px solid var(--background-modifier-border);
+        border-radius: 12px;
+        padding: 12px 16px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        font-family: var(--font-interface);
+        cursor: move;
+      }
+      .fp-float-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+      .fp-float-mode {
+        font-size: 18px;
+      }
+      .fp-float-task {
+        font-size: 12px;
+        color: var(--text-muted);
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .fp-float-close {
+        cursor: pointer;
+        opacity: 0.5;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .fp-float-close:hover {
+        opacity: 1;
+        background: var(--background-modifier-hover);
+      }
+      .fp-float-time {
+        font-size: 28px;
+        font-weight: 600;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        color: var(--text-accent);
+      }
+      #focus-planner-floating-timer.paused .fp-float-time {
+        color: var(--text-warning);
+      }
+    `;
+    document.head.appendChild(style);
+    document.body.appendChild(this.fallbackEl);
+    const closeBtn = this.fallbackEl.querySelector(".fp-float-close");
+    closeBtn == null ? void 0 : closeBtn.addEventListener("click", () => this.hideFallbackTimer());
+    this.makeDraggable(this.fallbackEl);
+  }
+  hideFallbackTimer() {
+    if (this.fallbackEl) {
+      this.fallbackEl.remove();
+      this.fallbackEl = null;
+    }
+    const style = document.getElementById("focus-planner-floating-timer-style");
+    style == null ? void 0 : style.remove();
+  }
+  updateFallbackTimer(minutes, seconds, isRunning, mode) {
+    if (!this.fallbackEl)
+      return;
+    const timeEl = this.fallbackEl.querySelector(".fp-float-time");
+    const modeEl = this.fallbackEl.querySelector(".fp-float-mode");
+    if (timeEl) {
+      timeEl.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+    if (modeEl) {
+      modeEl.textContent = mode === "work" ? "\u{1F345}" : "\u2615";
+    }
+    if (isRunning) {
+      this.fallbackEl.classList.remove("paused");
+    } else {
+      this.fallbackEl.classList.add("paused");
+    }
+  }
+  makeDraggable(el) {
+    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+    el.onmousedown = (e) => {
+      if (e.target.classList.contains("fp-float-close"))
+        return;
+      e.preventDefault();
+      pos3 = e.clientX;
+      pos4 = e.clientY;
+      document.onmouseup = closeDragElement;
+      document.onmousemove = elementDrag;
+    };
+    const elementDrag = (e) => {
+      e.preventDefault();
+      pos1 = pos3 - e.clientX;
+      pos2 = pos4 - e.clientY;
+      pos3 = e.clientX;
+      pos4 = e.clientY;
+      el.style.top = el.offsetTop - pos2 + "px";
+      el.style.left = el.offsetLeft - pos1 + "px";
+      el.style.right = "auto";
+    };
+    const closeDragElement = () => {
+      document.onmouseup = null;
+      document.onmousemove = null;
+    };
+  }
+  /**
+   * Check if window is currently visible
+   */
+  isVisible() {
+    return this.window !== null || this.fallbackEl !== null;
+  }
+};
+
 // src/main.ts
 var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.syncIntervalId = null;
+    this.timerUpdateIntervalId = null;
   }
   async onload() {
     await this.loadSettings();
     this.dailyNoteParser = new DailyNoteParser(this.app, this.settings);
     this.statsManager = new StatsManager(this.app, this.settings, this.dailyNoteParser);
     this.taskParser = new TaskParser(this.app);
+    this.floatingTimer = new FloatingTimerWindow();
     this.feishuApi = new FeishuApi(
       this.settings.feishu,
       async (feishuSettings) => {
@@ -3275,7 +3623,10 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     });
   }
   onunload() {
+    var _a;
     this.stopAutoSync();
+    this.stopTimerUpdate();
+    (_a = this.floatingTimer) == null ? void 0 : _a.hide();
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -3455,6 +3806,10 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
     if (pomodoroPlugin) {
       this.app.commands.executeCommandById("pomodoro-timer:toggle-timer");
+      this.floatingTimer.show(event.title, () => {
+        new import_obsidian7.Notice(`\u{1F345} \u756A\u8304\u949F\u5B8C\u6210: ${event.title}`);
+      });
+      this.startTimerUpdate();
       let taskUpdated = false;
       let newDone = 0;
       let totalPomos = 0;
@@ -3552,6 +3907,59 @@ var FocusPlannerPlugin = class extends import_obsidian7.Plugin {
     if (this.syncIntervalId !== null) {
       window.clearInterval(this.syncIntervalId);
       this.syncIntervalId = null;
+    }
+  }
+  // Start polling pomodoro timer state and updating floating window
+  startTimerUpdate() {
+    this.stopTimerUpdate();
+    this.timerUpdateIntervalId = window.setInterval(() => {
+      this.updateFloatingTimer();
+    }, 500);
+  }
+  // Stop timer update interval
+  stopTimerUpdate() {
+    if (this.timerUpdateIntervalId !== null) {
+      window.clearInterval(this.timerUpdateIntervalId);
+      this.timerUpdateIntervalId = null;
+    }
+  }
+  // Update the floating timer display with current pomodoro state
+  updateFloatingTimer() {
+    var _a, _b;
+    const pomodoroPlugin = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["pomodoro-timer"];
+    if (!pomodoroPlugin) {
+      this.stopTimerUpdate();
+      this.floatingTimer.hide();
+      return;
+    }
+    const timerState = pomodoroPlugin.timer || pomodoroPlugin.state;
+    if (timerState) {
+      const running = timerState.running || false;
+      const remained = timerState.remained || { minutes: 0, seconds: 0 };
+      const mode = timerState.mode || "work";
+      this.floatingTimer.updateDisplay(
+        remained.minutes || 0,
+        remained.seconds || 0,
+        running,
+        mode
+      );
+      if (!running && remained.minutes === 0 && remained.seconds === 0) {
+        this.stopTimerUpdate();
+        setTimeout(() => {
+          if (!this.timerUpdateIntervalId) {
+            this.floatingTimer.hide();
+          }
+        }, 3e3);
+      }
+    } else {
+      const time = pomodoroPlugin.timeRemaining || pomodoroPlugin.remainingTime;
+      const isRunning = pomodoroPlugin.isRunning || pomodoroPlugin.running;
+      const currentMode = pomodoroPlugin.currentMode || pomodoroPlugin.mode || "work";
+      if (typeof time === "number") {
+        const minutes = Math.floor(time / 60);
+        const seconds = time % 60;
+        this.floatingTimer.updateDisplay(minutes, seconds, isRunning, currentMode);
+      }
     }
   }
 };
