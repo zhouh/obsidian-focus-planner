@@ -3213,13 +3213,13 @@ var TaskParser = class {
 };
 
 // src/floatingTimer.ts
-var electron = require("electron");
+var { exec } = require("child_process");
 var FloatingTimerWindow = class {
   constructor() {
-    this.window = null;
     this.updateInterval = null;
     this.currentTaskTitle = "";
     this.onComplete = null;
+    this.lastNotificationTime = 0;
     // ========== FALLBACK IMPLEMENTATION ==========
     // For when Electron BrowserWindow is not available
     this.fallbackEl = null;
@@ -3230,49 +3230,12 @@ var FloatingTimerWindow = class {
   show(taskTitle, onComplete) {
     this.currentTaskTitle = taskTitle;
     this.onComplete = onComplete || null;
-    if (this.window) {
-      this.window.focus();
-      return;
-    }
-    try {
-      const { BrowserWindow } = electron.remote || electron;
-      this.window = new BrowserWindow({
-        width: 200,
-        height: 80,
-        x: this.getScreenWidth() - 220,
-        y: 20,
-        frame: false,
-        transparent: true,
-        alwaysOnTop: true,
-        skipTaskbar: true,
-        resizable: false,
-        focusable: true,
-        hasShadow: true,
-        webPreferences: {
-          nodeIntegration: true,
-          contextIsolation: false
-        }
-      });
-      const html = this.generateHTML();
-      this.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-      this.window.on("closed", () => {
-        this.window = null;
-        this.stopUpdating();
-      });
-      this.startUpdating();
-    } catch (error) {
-      console.error("[Focus Planner] Failed to create floating window:", error);
-      this.showFallbackTimer(taskTitle);
-    }
+    this.showFallbackTimer(taskTitle);
   }
   /**
    * Hide the floating timer window
    */
   hide() {
-    if (this.window) {
-      this.window.close();
-      this.window = null;
-    }
     this.stopUpdating();
     this.hideFallbackTimer();
   }
@@ -3280,142 +3243,37 @@ var FloatingTimerWindow = class {
    * Update the timer display
    */
   updateDisplay(minutes, seconds, isRunning, mode = "work") {
-    if (this.window && !this.window.isDestroyed()) {
-      const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-      const modeEmoji = mode === "work" ? "\u{1F345}" : "\u2615";
-      const statusClass = isRunning ? "running" : "paused";
-      this.window.webContents.executeJavaScript(`
-        document.getElementById('time').textContent = '${timeStr}';
-        document.getElementById('mode').textContent = '${modeEmoji}';
-        document.getElementById('container').className = '${statusClass}';
-        document.getElementById('task').textContent = '${this.escapeHtml(this.currentTaskTitle.substring(0, 20))}';
-      `).catch(() => {
-      });
-    }
     this.updateFallbackTimer(minutes, seconds, isRunning, mode);
-  }
-  /**
-   * Get screen width for positioning
-   */
-  getScreenWidth() {
-    try {
-      const { screen } = electron.remote || electron;
-      const primaryDisplay = screen.getPrimaryDisplay();
-      return primaryDisplay.workAreaSize.width;
-    } catch (e) {
-      return 1920;
+    const totalSeconds = minutes * 60 + seconds;
+    const now = Date.now();
+    const shouldNotify = totalSeconds > 0 && totalSeconds % 300 === 0 || // Every 5 minutes
+    totalSeconds === 60 || // 1 minute remaining
+    totalSeconds === 0 && isRunning;
+    if (shouldNotify && now - this.lastNotificationTime > 3e4) {
+      this.lastNotificationTime = now;
+      this.showMacNotification(minutes, seconds, mode);
     }
   }
   /**
-   * Generate HTML for the floating window
+   * Show macOS native notification (visible on all desktops)
    */
-  generateHTML() {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      -webkit-user-select: none;
-      user-select: none;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: transparent;
-      overflow: hidden;
-    }
-    #container {
-      background: rgba(30, 30, 30, 0.95);
-      border-radius: 12px;
-      padding: 12px 16px;
-      color: white;
-      cursor: move;
-      -webkit-app-region: drag;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    #container.running {
-      border-color: rgba(76, 175, 80, 0.5);
-    }
-    #container.paused {
-      border-color: rgba(255, 193, 7, 0.5);
-    }
-    .header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
-    }
-    #mode {
-      font-size: 18px;
-    }
-    #task {
-      font-size: 12px;
-      color: rgba(255, 255, 255, 0.7);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      flex: 1;
-    }
-    .close-btn {
-      font-size: 14px;
-      cursor: pointer;
-      opacity: 0.5;
-      -webkit-app-region: no-drag;
-      padding: 2px 6px;
-      border-radius: 4px;
-    }
-    .close-btn:hover {
-      opacity: 1;
-      background: rgba(255, 255, 255, 0.1);
-    }
-    #time {
-      font-size: 32px;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
-      text-align: center;
-      letter-spacing: 2px;
-    }
-    .running #time {
-      color: #4CAF50;
-    }
-    .paused #time {
-      color: #FFC107;
-    }
-  </style>
-</head>
-<body>
-  <div id="container" class="running">
-    <div class="header">
-      <span id="mode">\u{1F345}</span>
-      <span id="task">${this.escapeHtml(this.currentTaskTitle.substring(0, 20))}</span>
-      <span class="close-btn" onclick="window.close()">\u2715</span>
-    </div>
-    <div id="time">25:00</div>
-  </div>
-  <script>
-    // Allow dragging
-    document.getElementById('container').addEventListener('mousedown', (e) => {
-      if (e.target.classList.contains('close-btn')) return;
+  showMacNotification(minutes, seconds, mode) {
+    const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    const modeText = mode === "work" ? "\u{1F345} \u4E13\u6CE8\u4E2D" : "\u2615 \u4F11\u606F\u4E2D";
+    const title = `${modeText} - ${this.currentTaskTitle.substring(0, 20)}`;
+    const message = seconds === 0 && minutes === 0 ? "\u756A\u8304\u949F\u5B8C\u6210\uFF01" : `\u5269\u4F59\u65F6\u95F4: ${timeStr}`;
+    const script = `display notification "${message}" with title "${title}"`;
+    exec(`osascript -e '${script}'`, (error) => {
+      if (error) {
+        console.log("[Focus Planner] Notification error:", error);
+      }
     });
-  <\/script>
-</body>
-</html>
-    `;
   }
   /**
    * Escape HTML special characters
    */
   escapeHtml(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-  }
-  /**
-   * Start the update interval
-   */
-  startUpdating() {
   }
   /**
    * Stop the update interval
@@ -3554,7 +3412,7 @@ var FloatingTimerWindow = class {
    * Check if window is currently visible
    */
   isVisible() {
-    return this.window !== null || this.fallbackEl !== null;
+    return this.fallbackEl !== null;
   }
 };
 
