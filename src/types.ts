@@ -115,11 +115,11 @@ export const DEFAULT_SETTINGS: FocusPlannerSettings = {
   weeklyNotePath: '0. PeriodicNotes/YYYY/Weekly/YYYY-WXX.md',
   pomodoroMinutes: 25,
   categoryKeywords: {
-    [EventCategory.FOCUS]: ['专注', '学习', '阅读', '代码', 'demo', '论文', 'RL', 'nanoGPT'],
+    [EventCategory.FOCUS]: ['专注', '学习', '阅读', '代码', 'demo', '论文', 'coding', 'study'],
     [EventCategory.MEETING]: ['会议', '讨论', '周会', 'Seminar', 'oneone', 'sync', 'meeting'],
-    [EventCategory.PERSONAL]: ['家庭', '个人', '湿疹', '晚间', '跨年', '退房'],
-    [EventCategory.REST]: ['午休', '休息', 'break'],
-    [EventCategory.ADMIN]: ['报销', '行政', 'Review', '述职'],
+    [EventCategory.PERSONAL]: ['家庭', '个人', '晚间', 'gym', 'personal', 'family'],
+    [EventCategory.REST]: ['午休', '休息', 'break', 'lunch'],
+    [EventCategory.ADMIN]: ['报销', '行政', 'Review', 'admin'],
   },
   showStatsPanel: true,
 };

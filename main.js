@@ -69,11 +69,11 @@ var DEFAULT_SETTINGS = {
   weeklyNotePath: "0. PeriodicNotes/YYYY/Weekly/YYYY-WXX.md",
   pomodoroMinutes: 25,
   categoryKeywords: {
-    ["focus" /* FOCUS */]: ["\u4E13\u6CE8", "\u5B66\u4E60", "\u9605\u8BFB", "\u4EE3\u7801", "demo", "\u8BBA\u6587", "RL", "nanoGPT"],
+    ["focus" /* FOCUS */]: ["\u4E13\u6CE8", "\u5B66\u4E60", "\u9605\u8BFB", "\u4EE3\u7801", "demo", "\u8BBA\u6587", "coding", "study"],
     ["meeting" /* MEETING */]: ["\u4F1A\u8BAE", "\u8BA8\u8BBA", "\u5468\u4F1A", "Seminar", "oneone", "sync", "meeting"],
-    ["personal" /* PERSONAL */]: ["\u5BB6\u5EAD", "\u4E2A\u4EBA", "\u6E7F\u75B9", "\u665A\u95F4", "\u8DE8\u5E74", "\u9000\u623F"],
-    ["rest" /* REST */]: ["\u5348\u4F11", "\u4F11\u606F", "break"],
-    ["admin" /* ADMIN */]: ["\u62A5\u9500", "\u884C\u653F", "Review", "\u8FF0\u804C"]
+    ["personal" /* PERSONAL */]: ["\u5BB6\u5EAD", "\u4E2A\u4EBA", "\u665A\u95F4", "gym", "personal", "family"],
+    ["rest" /* REST */]: ["\u5348\u4F11", "\u4F11\u606F", "break", "lunch"],
+    ["admin" /* ADMIN */]: ["\u62A5\u9500", "\u884C\u653F", "Review", "admin"]
   },
   showStatsPanel: true
 };
