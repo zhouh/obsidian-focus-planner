@@ -3213,7 +3213,7 @@ var TaskParser = class {
 };
 
 // src/floatingTimer.ts
-var { exec, spawn, execSync } = require("child_process");
+var { spawn } = require("child_process");
 var path = require("path");
 var fs = require("fs");
 var os = require("os");
@@ -3221,11 +3221,8 @@ var FloatingTimerWindow = class {
   constructor() {
     this.currentTaskTitle = "";
     this.onComplete = null;
-    this.fallbackEl = null;
     this.nativeWindowProcess = null;
-    this.pipePath = "";
     this.isNativeWindowActive = false;
-    this.pipePath = path.join(os.tmpdir(), "focus-planner-timer-pipe");
   }
   /**
    * Show the floating timer window
@@ -3234,20 +3231,17 @@ var FloatingTimerWindow = class {
     this.currentTaskTitle = taskTitle;
     this.onComplete = onComplete || null;
     this.createNativeWindow(taskTitle);
-    this.showFallbackTimer(taskTitle);
   }
   /**
    * Hide the floating timer window
    */
   hide() {
-    this.hideFallbackTimer();
     this.closeNativeWindow();
   }
   /**
    * Update the timer display
    */
   updateDisplay(minutes, seconds, isRunning, mode = "work") {
-    this.updateFallbackTimer(minutes, seconds, isRunning, mode);
     if (this.isNativeWindowActive) {
       this.updateNativeWindow(minutes, seconds, isRunning, mode);
     }
@@ -3422,140 +3416,8 @@ app.run()
     }
     this.isNativeWindowActive = false;
   }
-  /**
-   * Escape HTML special characters
-   */
-  escapeHtml(text) {
-    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-  }
-  // ========== IN-APP FALLBACK IMPLEMENTATION ==========
-  showFallbackTimer(taskTitle) {
-    this.hideFallbackTimer();
-    this.fallbackEl = document.createElement("div");
-    this.fallbackEl.id = "focus-planner-floating-timer";
-    this.fallbackEl.innerHTML = `
-      <span class="fp-float-mode">\u{1F345}</span>
-      <span class="fp-float-time">25:00</span>
-      <span class="fp-float-close">\u2715</span>
-    `;
-    const existingStyle = document.getElementById("focus-planner-floating-timer-style");
-    if (existingStyle)
-      existingStyle.remove();
-    const style = document.createElement("style");
-    style.id = "focus-planner-floating-timer-style";
-    style.textContent = `
-      #focus-planner-floating-timer {
-        position: fixed !important;
-        top: 8px !important;
-        right: 80px !important;
-        z-index: 2147483647 !important;
-        background: rgba(20, 20, 20, 0.85) !important;
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 8px !important;
-        padding: 6px 10px !important;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
-        font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
-        cursor: move;
-        pointer-events: auto !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 6px !important;
-        user-select: none !important;
-      }
-      #focus-planner-floating-timer .fp-float-mode {
-        font-size: 14px !important;
-      }
-      #focus-planner-floating-timer .fp-float-time {
-        font-size: 18px !important;
-        font-weight: 600 !important;
-        font-variant-numeric: tabular-nums !important;
-        color: #4CAF50 !important;
-        letter-spacing: 1px !important;
-      }
-      #focus-planner-floating-timer.paused .fp-float-time {
-        color: #FFC107 !important;
-      }
-      #focus-planner-floating-timer .fp-float-close {
-        cursor: pointer !important;
-        opacity: 0.4 !important;
-        font-size: 12px !important;
-        padding: 2px 4px !important;
-        margin-left: 2px !important;
-        color: #fff !important;
-      }
-      #focus-planner-floating-timer .fp-float-close:hover {
-        opacity: 1 !important;
-      }
-    `;
-    document.head.appendChild(style);
-    document.body.appendChild(this.fallbackEl);
-    console.log("[Focus Planner] In-app timer created");
-    const closeBtn = this.fallbackEl.querySelector(".fp-float-close");
-    closeBtn == null ? void 0 : closeBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.hide();
-    });
-    this.makeDraggable(this.fallbackEl);
-  }
-  hideFallbackTimer() {
-    var _a, _b;
-    if (this.fallbackEl) {
-      this.fallbackEl.remove();
-      this.fallbackEl = null;
-    }
-    (_a = document.getElementById("focus-planner-floating-timer-style")) == null ? void 0 : _a.remove();
-    try {
-      (_b = activeDocument == null ? void 0 : activeDocument.getElementById("focus-planner-floating-timer-style")) == null ? void 0 : _b.remove();
-    } catch (e) {
-    }
-  }
-  updateFallbackTimer(minutes, seconds, isRunning, mode) {
-    if (!this.fallbackEl)
-      return;
-    const timeEl = this.fallbackEl.querySelector(".fp-float-time");
-    const modeEl = this.fallbackEl.querySelector(".fp-float-mode");
-    if (timeEl) {
-      timeEl.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    }
-    if (modeEl) {
-      modeEl.textContent = mode === "work" ? "\u{1F345}" : "\u2615";
-    }
-    if (isRunning) {
-      this.fallbackEl.classList.remove("paused");
-    } else {
-      this.fallbackEl.classList.add("paused");
-    }
-  }
-  makeDraggable(el) {
-    let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
-    el.onmousedown = (e) => {
-      if (e.target.classList.contains("fp-float-close"))
-        return;
-      e.preventDefault();
-      pos3 = e.clientX;
-      pos4 = e.clientY;
-      document.onmouseup = closeDragElement;
-      document.onmousemove = elementDrag;
-    };
-    const elementDrag = (e) => {
-      e.preventDefault();
-      pos1 = pos3 - e.clientX;
-      pos2 = pos4 - e.clientY;
-      pos3 = e.clientX;
-      pos4 = e.clientY;
-      el.style.top = el.offsetTop - pos2 + "px";
-      el.style.left = el.offsetLeft - pos1 + "px";
-      el.style.right = "auto";
-    };
-    const closeDragElement = () => {
-      document.onmouseup = null;
-      document.onmousemove = null;
-    };
-  }
   isVisible() {
-    return this.fallbackEl !== null || this.isNativeWindowActive;
+    return this.isNativeWindowActive;
   }
 };
 
