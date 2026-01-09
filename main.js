@@ -1135,13 +1135,13 @@ var DailyNoteParser = class {
   }
   // Parse events from a daily note
   async parseEventsFromDailyNote(date) {
-    const path = this.getDailyNotePath(date);
-    const file = this.app.vault.getAbstractFileByPath(path);
+    const path2 = this.getDailyNotePath(date);
+    const file = this.app.vault.getAbstractFileByPath(path2);
     if (!(file instanceof import_obsidian3.TFile)) {
       return [];
     }
     const content = await this.app.vault.read(file);
-    return this.parseEventsFromContent(content, date, path);
+    return this.parseEventsFromContent(content, date, path2);
   }
   // Parse events from markdown content
   parseEventsFromContent(content, date, filePath) {
@@ -1241,8 +1241,8 @@ var DailyNoteParser = class {
   }
   // Parse pomodoro records from daily note
   async parsePomodorosFromDailyNote(date) {
-    const path = this.getDailyNotePath(date);
-    const file = this.app.vault.getAbstractFileByPath(path);
+    const path2 = this.getDailyNotePath(date);
+    const file = this.app.vault.getAbstractFileByPath(path2);
     if (!(file instanceof import_obsidian3.TFile)) {
       return [];
     }
@@ -1271,14 +1271,14 @@ var DailyNoteParser = class {
   }
   // Write events to daily note's Day Planner section
   async writeEventsToDailyNote(date, events) {
-    const path = this.getDailyNotePath(date);
-    let file = this.app.vault.getAbstractFileByPath(path);
+    const path2 = this.getDailyNotePath(date);
+    let file = this.app.vault.getAbstractFileByPath(path2);
     if (!file) {
       await this.createDailyNote(date);
-      file = this.app.vault.getAbstractFileByPath(path);
+      file = this.app.vault.getAbstractFileByPath(path2);
     }
     if (!file) {
-      throw new Error(`Failed to create daily note at ${path}`);
+      throw new Error(`Failed to create daily note at ${path2}`);
     }
     const content = await this.app.vault.read(file);
     const updatedContent = this.updateDayPlannerSection(content, events);
@@ -1286,14 +1286,14 @@ var DailyNoteParser = class {
   }
   // Create a new daily note
   async createDailyNote(date) {
-    const path = this.getDailyNotePath(date);
-    const dir = path.substring(0, path.lastIndexOf("/"));
+    const path2 = this.getDailyNotePath(date);
+    const dir = path2.substring(0, path2.lastIndexOf("/"));
     const existingDir = this.app.vault.getAbstractFileByPath(dir);
     if (!existingDir) {
       await this.app.vault.createFolder(dir);
     }
     const template = this.getDailyNoteTemplate(date);
-    await this.app.vault.create(path, template);
+    await this.app.vault.create(path2, template);
   }
   // Get daily note template
   getDailyNoteTemplate(date) {
@@ -1472,10 +1472,10 @@ TaskDoneListByTime
   }
   // Remove an event from a daily note
   async removeEventFromDailyNote(date, event) {
-    const path = this.getDailyNotePath(date);
-    const file = this.app.vault.getAbstractFileByPath(path);
+    const path2 = this.getDailyNotePath(date);
+    const file = this.app.vault.getAbstractFileByPath(path2);
     if (!(file instanceof import_obsidian3.TFile)) {
-      throw new Error(`File not found: ${path}`);
+      throw new Error(`File not found: ${path2}`);
     }
     const content = await this.app.vault.read(file);
     const startTime = this.formatTime(event.start);
@@ -1497,14 +1497,14 @@ TaskDoneListByTime
   }
   // Add an event to a daily note
   async addEventToDailyNote(date, event) {
-    const path = this.getDailyNotePath(date);
-    let file = this.app.vault.getAbstractFileByPath(path);
+    const path2 = this.getDailyNotePath(date);
+    let file = this.app.vault.getAbstractFileByPath(path2);
     if (!file) {
       await this.createDailyNote(date);
-      file = this.app.vault.getAbstractFileByPath(path);
+      file = this.app.vault.getAbstractFileByPath(path2);
     }
     if (!file) {
-      throw new Error(`Failed to create daily note at ${path}`);
+      throw new Error(`Failed to create daily note at ${path2}`);
     }
     const content = await this.app.vault.read(file);
     const startTime = this.formatTime(event.start);
@@ -3213,16 +3213,19 @@ var TaskParser = class {
 };
 
 // src/floatingTimer.ts
-var { exec } = require("child_process");
+var { exec, spawn, execSync } = require("child_process");
+var path = require("path");
+var fs = require("fs");
+var os = require("os");
 var FloatingTimerWindow = class {
   constructor() {
-    this.updateInterval = null;
     this.currentTaskTitle = "";
     this.onComplete = null;
-    this.lastNotificationTime = 0;
-    // ========== FALLBACK IMPLEMENTATION ==========
-    // For when Electron BrowserWindow is not available
     this.fallbackEl = null;
+    this.nativeWindowProcess = null;
+    this.pipePath = "";
+    this.isNativeWindowActive = false;
+    this.pipePath = path.join(os.tmpdir(), "focus-planner-timer-pipe");
   }
   /**
    * Show the floating timer window
@@ -3230,44 +3233,194 @@ var FloatingTimerWindow = class {
   show(taskTitle, onComplete) {
     this.currentTaskTitle = taskTitle;
     this.onComplete = onComplete || null;
+    this.createNativeWindow(taskTitle);
     this.showFallbackTimer(taskTitle);
   }
   /**
    * Hide the floating timer window
    */
   hide() {
-    this.stopUpdating();
     this.hideFallbackTimer();
+    this.closeNativeWindow();
   }
   /**
    * Update the timer display
    */
   updateDisplay(minutes, seconds, isRunning, mode = "work") {
     this.updateFallbackTimer(minutes, seconds, isRunning, mode);
-    const totalSeconds = minutes * 60 + seconds;
-    const now = Date.now();
-    const shouldNotify = totalSeconds > 0 && totalSeconds % 300 === 0 || // Every 5 minutes
-    totalSeconds === 60 || // 1 minute remaining
-    totalSeconds === 0 && isRunning;
-    if (shouldNotify && now - this.lastNotificationTime > 3e4) {
-      this.lastNotificationTime = now;
-      this.showMacNotification(minutes, seconds, mode);
+    if (this.isNativeWindowActive) {
+      this.updateNativeWindow(minutes, seconds, isRunning, mode);
     }
   }
   /**
-   * Show macOS native notification (visible on all desktops)
+   * Create a native macOS floating window using Swift
    */
-  showMacNotification(minutes, seconds, mode) {
+  createNativeWindow(taskTitle) {
+    const swiftCode = `
+import Cocoa
+
+class TimerWindow: NSWindow {
+    var timeLabel: NSTextField!
+    var modeLabel: NSTextField!
+
+    init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 50),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        // Window properties for floating behavior
+        self.level = .floating
+        self.backgroundColor = NSColor(white: 0.1, alpha: 0.85)
+        self.isOpaque = false
+        self.hasShadow = true
+        self.isMovableByWindowBackground = true
+        self.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        // Round corners
+        self.contentView?.wantsLayer = true
+        self.contentView?.layer?.cornerRadius = 10
+        self.contentView?.layer?.masksToBounds = true
+
+        // Position in top-right corner
+        if let screen = NSScreen.main {
+            let screenFrame = screen.visibleFrame
+            let x = screenFrame.maxX - 140
+            let y = screenFrame.maxY - 70
+            self.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+
+        setupUI()
+    }
+
+    func setupUI() {
+        let contentView = self.contentView!
+
+        // Mode emoji
+        modeLabel = NSTextField(labelWithString: "\u{1F345}")
+        modeLabel.font = NSFont.systemFont(ofSize: 16)
+        modeLabel.alignment = .center
+        modeLabel.frame = NSRect(x: 8, y: 15, width: 24, height: 20)
+        contentView.addSubview(modeLabel)
+
+        // Time label
+        timeLabel = NSTextField(labelWithString: "25:00")
+        timeLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 24, weight: .semibold)
+        timeLabel.textColor = NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
+        timeLabel.alignment = .center
+        timeLabel.frame = NSRect(x: 32, y: 12, width: 80, height: 28)
+        contentView.addSubview(timeLabel)
+    }
+
+    func updateTime(_ time: String, mode: String, isPaused: Bool) {
+        timeLabel.stringValue = time
+        modeLabel.stringValue = mode == "work" ? "\u{1F345}" : "\u2615"
+        timeLabel.textColor = isPaused
+            ? NSColor(red: 1.0, green: 0.76, blue: 0.03, alpha: 1.0)
+            : NSColor(red: 0.3, green: 0.8, blue: 0.4, alpha: 1.0)
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    var window: TimerWindow!
+    var inputThread: Thread?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        window = TimerWindow()
+        window.makeKeyAndOrderFront(nil)
+
+        // Read from stdin for updates
+        inputThread = Thread {
+            let handle = FileHandle.standardInput
+            while true {
+                if let data = try? handle.availableData, !data.isEmpty {
+                    if let str = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) {
+                        if str == "QUIT" {
+                            DispatchQueue.main.async {
+                                NSApp.terminate(nil)
+                            }
+                            break
+                        }
+                        // Format: TIME|MODE|PAUSED (e.g., "24:30|work|false")
+                        let parts = str.split(separator: "|")
+                        if parts.count >= 3 {
+                            let time = String(parts[0])
+                            let mode = String(parts[1])
+                            let isPaused = parts[2] == "true"
+                            DispatchQueue.main.async {
+                                self.window.updateTime(time, mode: mode, isPaused: isPaused)
+                            }
+                        }
+                    }
+                } else {
+                    break
+                }
+            }
+        }
+        inputThread?.start()
+    }
+}
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()
+`;
+    const scriptPath = path.join(os.tmpdir(), "focus-planner-timer.swift");
+    try {
+      fs.writeFileSync(scriptPath, swiftCode);
+      this.nativeWindowProcess = spawn("swift", [scriptPath], {
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+      this.nativeWindowProcess.on("error", (err) => {
+        console.log("[Focus Planner] Native window error:", err);
+        this.isNativeWindowActive = false;
+      });
+      this.nativeWindowProcess.on("exit", () => {
+        console.log("[Focus Planner] Native window closed");
+        this.isNativeWindowActive = false;
+      });
+      this.isNativeWindowActive = true;
+      console.log("[Focus Planner] Native floating window started");
+    } catch (err) {
+      console.log("[Focus Planner] Failed to create native window:", err);
+      this.isNativeWindowActive = false;
+    }
+  }
+  updateNativeWindow(minutes, seconds, isRunning, mode) {
+    if (!this.nativeWindowProcess || !this.nativeWindowProcess.stdin)
+      return;
     const timeStr = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-    const modeText = mode === "work" ? "\u{1F345} \u4E13\u6CE8\u4E2D" : "\u2615 \u4F11\u606F\u4E2D";
-    const title = `${modeText} - ${this.currentTaskTitle.substring(0, 20)}`;
-    const message = seconds === 0 && minutes === 0 ? "\u756A\u8304\u949F\u5B8C\u6210\uFF01" : `\u5269\u4F59\u65F6\u95F4: ${timeStr}`;
-    const script = `display notification "${message}" with title "${title}"`;
-    exec(`osascript -e '${script}'`, (error) => {
-      if (error) {
-        console.log("[Focus Planner] Notification error:", error);
+    const isPaused = !isRunning;
+    const message = `${timeStr}|${mode}|${isPaused}
+`;
+    try {
+      this.nativeWindowProcess.stdin.write(message);
+    } catch (err) {
+      this.isNativeWindowActive = false;
+    }
+  }
+  closeNativeWindow() {
+    if (this.nativeWindowProcess) {
+      try {
+        this.nativeWindowProcess.stdin.write("QUIT\n");
+        setTimeout(() => {
+          if (this.nativeWindowProcess) {
+            this.nativeWindowProcess.kill();
+            this.nativeWindowProcess = null;
+          }
+        }, 500);
+      } catch (err) {
+        if (this.nativeWindowProcess) {
+          this.nativeWindowProcess.kill();
+          this.nativeWindowProcess = null;
+        }
       }
-    });
+    }
+    this.isNativeWindowActive = false;
   }
   /**
    * Escape HTML special characters
@@ -3275,95 +3428,88 @@ var FloatingTimerWindow = class {
   escapeHtml(text) {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
   }
-  /**
-   * Stop the update interval
-   */
-  stopUpdating() {
-    if (this.updateInterval !== null) {
-      window.clearInterval(this.updateInterval);
-      this.updateInterval = null;
-    }
-  }
+  // ========== IN-APP FALLBACK IMPLEMENTATION ==========
   showFallbackTimer(taskTitle) {
-    if (this.fallbackEl)
-      return;
+    this.hideFallbackTimer();
     this.fallbackEl = document.createElement("div");
     this.fallbackEl.id = "focus-planner-floating-timer";
     this.fallbackEl.innerHTML = `
-      <div class="fp-float-header">
-        <span class="fp-float-mode">\u{1F345}</span>
-        <span class="fp-float-task">${this.escapeHtml(taskTitle.substring(0, 15))}</span>
-        <span class="fp-float-close">\u2715</span>
-      </div>
-      <div class="fp-float-time">25:00</div>
+      <span class="fp-float-mode">\u{1F345}</span>
+      <span class="fp-float-time">25:00</span>
+      <span class="fp-float-close">\u2715</span>
     `;
+    const existingStyle = document.getElementById("focus-planner-floating-timer-style");
+    if (existingStyle)
+      existingStyle.remove();
     const style = document.createElement("style");
     style.id = "focus-planner-floating-timer-style";
     style.textContent = `
       #focus-planner-floating-timer {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 99999;
-        background: var(--background-primary);
-        border: 1px solid var(--background-modifier-border);
-        border-radius: 12px;
-        padding: 12px 16px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        font-family: var(--font-interface);
+        position: fixed !important;
+        top: 8px !important;
+        right: 80px !important;
+        z-index: 2147483647 !important;
+        background: rgba(20, 20, 20, 0.85) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 8px !important;
+        padding: 6px 10px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif !important;
         cursor: move;
+        pointer-events: auto !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 6px !important;
+        user-select: none !important;
       }
-      .fp-float-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 4px;
+      #focus-planner-floating-timer .fp-float-mode {
+        font-size: 14px !important;
       }
-      .fp-float-mode {
-        font-size: 18px;
-      }
-      .fp-float-task {
-        font-size: 12px;
-        color: var(--text-muted);
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .fp-float-close {
-        cursor: pointer;
-        opacity: 0.5;
-        padding: 2px 6px;
-        border-radius: 4px;
-      }
-      .fp-float-close:hover {
-        opacity: 1;
-        background: var(--background-modifier-hover);
-      }
-      .fp-float-time {
-        font-size: 28px;
-        font-weight: 600;
-        text-align: center;
-        font-variant-numeric: tabular-nums;
-        color: var(--text-accent);
+      #focus-planner-floating-timer .fp-float-time {
+        font-size: 18px !important;
+        font-weight: 600 !important;
+        font-variant-numeric: tabular-nums !important;
+        color: #4CAF50 !important;
+        letter-spacing: 1px !important;
       }
       #focus-planner-floating-timer.paused .fp-float-time {
-        color: var(--text-warning);
+        color: #FFC107 !important;
+      }
+      #focus-planner-floating-timer .fp-float-close {
+        cursor: pointer !important;
+        opacity: 0.4 !important;
+        font-size: 12px !important;
+        padding: 2px 4px !important;
+        margin-left: 2px !important;
+        color: #fff !important;
+      }
+      #focus-planner-floating-timer .fp-float-close:hover {
+        opacity: 1 !important;
       }
     `;
     document.head.appendChild(style);
     document.body.appendChild(this.fallbackEl);
+    console.log("[Focus Planner] In-app timer created");
     const closeBtn = this.fallbackEl.querySelector(".fp-float-close");
-    closeBtn == null ? void 0 : closeBtn.addEventListener("click", () => this.hideFallbackTimer());
+    closeBtn == null ? void 0 : closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.hide();
+    });
     this.makeDraggable(this.fallbackEl);
   }
   hideFallbackTimer() {
+    var _a, _b;
     if (this.fallbackEl) {
       this.fallbackEl.remove();
       this.fallbackEl = null;
     }
-    const style = document.getElementById("focus-planner-floating-timer-style");
-    style == null ? void 0 : style.remove();
+    (_a = document.getElementById("focus-planner-floating-timer-style")) == null ? void 0 : _a.remove();
+    try {
+      (_b = activeDocument == null ? void 0 : activeDocument.getElementById("focus-planner-floating-timer-style")) == null ? void 0 : _b.remove();
+    } catch (e) {
+    }
   }
   updateFallbackTimer(minutes, seconds, isRunning, mode) {
     if (!this.fallbackEl)
@@ -3408,11 +3554,8 @@ var FloatingTimerWindow = class {
       document.onmousemove = null;
     };
   }
-  /**
-   * Check if window is currently visible
-   */
   isVisible() {
-    return this.fallbackEl !== null;
+    return this.fallbackEl !== null || this.isNativeWindowActive;
   }
 };
 
