@@ -3228,6 +3228,7 @@ var FloatingTimerWindow = class {
    * Show the floating timer window
    */
   show(taskTitle, onComplete) {
+    this.closeNativeWindow();
     this.currentTaskTitle = taskTitle;
     this.onComplete = onComplete || null;
     this.createNativeWindow(taskTitle);

@@ -24,6 +24,9 @@ export class FloatingTimerWindow {
    * Show the floating timer window
    */
   show(taskTitle: string, onComplete?: () => void) {
+    // Close existing window first to prevent duplicates
+    this.closeNativeWindow();
+
     this.currentTaskTitle = taskTitle;
     this.onComplete = onComplete || null;
     this.createNativeWindow(taskTitle);
